@@ -1,10 +1,9 @@
 import numpy as np
-from typing import Optional
 from abc import ABC, abstractmethod
 from .platform_state import *
 
 
-class StateProvider(ABC):
+class MotionModel(ABC):
     
     def __init__(self) -> None:
         super().__init__()
@@ -13,7 +12,7 @@ class StateProvider(ABC):
     def get_state(self, time: float) -> PlatformState:
         pass
 
-class ConstantVelocity(StateProvider):
+class ConstantVelocity(MotionModel):
     
     def __init__(self, initial_state : PlatformState) -> None:
         super().__init__()

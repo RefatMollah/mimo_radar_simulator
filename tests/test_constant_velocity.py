@@ -1,10 +1,8 @@
 import numpy as np
 import pytest
-import sys
-from pathlib import Path
 
-from src.mimo.geometry.state_provider import ConstantVelocity
-from src.mimo.geometry.platform_state import PlatformState
+from src.mimo.geometry.motion_model import ConstantVelocity
+from src.mimo.geometry.motion_model import PlatformState
 
 def test_constant_velocity_propagation():
     state = PlatformState(
