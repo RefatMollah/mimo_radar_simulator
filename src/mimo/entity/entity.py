@@ -65,6 +65,11 @@ class Entity():
         component.on_detach()
         
         del self._radar_components[component_type]
+   
+
+##################################################################################################################
+# Exceptions
+##################################################################################################################   
     
 class ComponentAlreadyAttachedError(Exception):
     def __init__(self, component_name: str):

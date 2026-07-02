@@ -2,12 +2,7 @@
 ```
 mimo_radar_simulator
 ├─ .pytest_cache
-│  ├─ CACHEDIR.TAG
-│  ├─ README.md
-│  └─ v
-│     └─ cache
-│        ├─ lastfailed
-│        └─ nodeids
+│             
 ├─ src
 │  └─ mimo
 │     ├─ geometry

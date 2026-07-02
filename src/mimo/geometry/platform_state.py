@@ -33,6 +33,27 @@ class PlatformState:
         if not np.isclose(norm, 1.0, atol=1e-6):
             raise ValueError("Quaternion must be normalised.")
     
+    @classmethod
+    def fast_create(
+        cls,
+        position: NDArray[np.float64],
+        velocity: NDArray[np.float64],
+        orientation: NDArray[np.float64],
+        angular_velocity: NDArray[np.float64],
+        time: float
+    ) -> PlatformState:
+        obj = cls.__new__(cls)
+        
+        state_dict = {
+            'position': position,
+            'veloctiy': velocity,
+            'orientation': orientation,
+            'angular_velocity': angular_velocity,
+            'time': time
+        }
+        object.__setattr__(obj, '__dict__', state_dict)
+        return obj
+    
     # World Frame Functions    
     def relative_position_to(self, other: PlatformState) -> np.ndarray:
         return other.position - self.position

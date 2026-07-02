@@ -12,6 +12,21 @@ class MotionModel(ABC):
     def get_state(self, time: float) -> PlatformState:
         pass
 
+class StationaryModel(MotionModel):
+    
+    def __init__(self, initial_state: PlatformState) -> None:
+        super().__init__()
+        self.initial_state = initial_state
+    
+    def get_state(self, time: float) -> PlatformState:
+        return PlatformState(
+            position=self.initial_state.position,
+            velocity=self.initial_state.velocity,
+            orientation=self.initial_state.orientation,
+            angular_velocity=self.initial_state.angular_velocity,
+            time = time
+        )
+
 class ConstantVelocity(MotionModel):
     
     def __init__(self, initial_state : PlatformState) -> None:
@@ -48,10 +63,12 @@ class ConstantVelocity(MotionModel):
                 )
             )    
         
-        return PlatformState(position= position,
+        return PlatformState(
+                    position= position,
                     velocity= self.initial_state.velocity,
                     orientation= orientation,
                     angular_velocity= self.initial_state.angular_velocity,
                     time= time
                 )
+
     
