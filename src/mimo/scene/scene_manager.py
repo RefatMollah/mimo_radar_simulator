@@ -46,25 +46,25 @@ class SceneManager:
         else:
             self._static_positions = np.empty((0,3), dtype=np.float64)
             self._static_velocities = np.empty((0,3), dtype=np.float64)
-            self._static_orientations = np.empty((0,3), dtype=np.float64)
+            self._static_orientations = np.empty((0,4), dtype=np.float64)
             self._static_angular_vels = np.empty((0,3), dtype=np.float64)
-                     
+
+    @property
+    def current_time(self) -> float:
+        return self._time                     
     
     def advance(self, dt: float) -> SceneSnapshot:
         if dt < 0:
             raise ValueError(f"dt must be non-negative; got {dt!r}.")
         self._time += dt
         return self._build_snapshot(self._time)
-    
-    def snapshot_at(self, time: float) -> SceneSnapshot:
-        return self._build_snapshot(time)
-    
+        
     def reset(self, time: float = 0.0) -> None:
         self._time = time
 
-    @property
-    def current_time(self) -> float:
-        return self._time
+
+    def snapshot_at(self, time: float) -> SceneSnapshot:
+        return self._build_snapshot(time)
     
     def _build_snapshot(self, time: float):
         dynamic_ids: list[str] = []
