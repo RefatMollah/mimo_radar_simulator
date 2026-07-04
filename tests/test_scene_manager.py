@@ -3,7 +3,7 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import Mock, MagicMock
 
-from src.mimo.scene.scene_manager import SceneManager
+from src.mimo.scene.scene_manager import SceneManager, _EntityBatch, _collect_entities, _stack_or_empty
 from src.mimo.scene.scene import Scene
 from src.mimo.geometry.motion_model import MotionModel
 from src.mimo.entity.entity import Entity
@@ -52,12 +52,12 @@ class TestInitStaticCaching:
         
         manager = SceneManager(scene, start_time=0.0)
         
-        assert manager._n_static == 0
-        assert manager._static_ids == ()
-        assert manager._static_positions.shape == (0, 3)
-        assert manager._static_velocities.shape == (0, 3)
-        assert manager._static_orientations.shape == (0, 4)
-        assert manager._static_angular_vels.shape == (0, 3)
+        assert manager._static_batch.n == 0
+        assert manager._static_batch.ids == ()
+        assert manager._static_batch.positions.shape == (0, 3)
+        assert manager._static_batch.velocities.shape == (0, 3)
+        assert manager._static_batch.orientations.shape == (0, 4)
+        assert manager._static_batch.angular_velocities.shape == (0, 3)
     
     def test_single_static_entity_cached(self, scene, make_entity, make_state):
         state = make_state(i=5)
@@ -66,11 +66,11 @@ class TestInitStaticCaching:
         
         manager = SceneManager(scene, start_time=1.0)
         
-        assert manager._n_static == 1
-        assert manager._static_ids == ("e1",)
-        assert manager._static_positions.shape == (1,3)
-        np.testing.assert_array_equal(manager._static_positions[0], state.position)
-        np.testing.assert_array_equal(manager._static_velocities[0], state.velocity)
-        np.testing.assert_array_equal(manager._static_orientations[0], state.orientation)
-        np.testing.assert_array_equal(manager._static_angular_vels[0], state.angular_velocity)
+        assert manager._static_batch.n == 1
+        assert manager._static_batch.ids == ("e1",)
+        assert manager._static_batch.positions.shape == (1,3)
+        np.testing.assert_array_equal(manager._static_batch.positions[0], state.position)
+        np.testing.assert_array_equal(manager._static_batch.velocities[0], state.velocity)
+        np.testing.assert_array_equal(manager._static_batch.orientations[0], state.orientation)
+        np.testing.assert_array_equal(manager._static_batch.angular_velocities[0], state.angular_velocity)
     
