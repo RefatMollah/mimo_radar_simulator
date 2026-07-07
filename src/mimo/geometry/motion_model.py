@@ -32,8 +32,7 @@ class ConstantVelocity(MotionModel):
     def __init__(self, initial_state : PlatformState) -> None:
         super().__init__()
         self.initial_state = initial_state
-            
-        
+                
     def get_state(self, time: float) -> PlatformState:
         dt = time - self.initial_state.time
         if (dt < 0):
@@ -44,7 +43,6 @@ class ConstantVelocity(MotionModel):
         
         omega = self.initial_state.angular_velocity
         omega_norm = np.linalg.norm(omega)
-        
         
         if omega_norm < 1e-12:
             orientation = self.initial_state.orientation

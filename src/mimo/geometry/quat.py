@@ -4,6 +4,12 @@
 import numpy as np
 
 
+"""
+Quaternion convention:
+[w,x,y,z]
+represents body->world convention.
+"""
+
 def normalise(q) -> np.ndarray:
     return q / np.linalg.norm(q)
 

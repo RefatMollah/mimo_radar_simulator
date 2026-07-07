@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from ..geometry.platform_state import PlatformState
 
  
-@dataclass(frozen=True)
+@dataclass(slots=True, frozen=True)
 class SceneSnapshot:
     time: float
     

@@ -70,7 +70,7 @@ class SceneManager:
             is_static=is_static,
         )
         
-@dataclass
+@dataclass(slots=True, frozen=True)
 class _EntityBatch:
     ids: tuple[str, ...]
     positions: NDArray[np.float64]
@@ -93,39 +93,56 @@ class _EntityBatch:
         )
     
 
-def _stack_or_empty(rows: list[NDArray[np.float64]], width: int) -> NDArray[np.float64]:
-    if rows:
-        return np.vstack(rows)
-    return np.empty((0, width), dtype=np.float64)
-
 def _collect_entities(entities: Iterable[Entity], time: float, *, label: str) -> _EntityBatch:
-    ids: list[str] = []
-    positions: list[NDArray[np.float64]] = []
-    velocities: list[NDArray[np.float64]] = []
-    orientations: list[NDArray[np.float64]] = []
-    angular_vels: list[NDArray[np.float64]] = []
+
+    entities = tuple(entities)
+    n = len(entities)
+    
+    if n == 0:
+        return _EntityBatch.empty()
+    
+    ids = [""] * n
+    positions = np.empty((n, 3), dtype=np.float64)
+    velocities = np.empty((n, 3), dtype=np.float64)
+    orienations = np.empty((n, 4), dtype=np.float64)
+    angular_velocities = np.empty((n, 3), dtype=np.float64)
+    
+    write = 0
     
     for entity in entities:
         try:
             state = entity.get_state(time)
         except Exception as exc:
-            logger.warning("%s entity %s dropped from snapshot at t=%.6f: %s.", label, entity.id, time, exc)
+            logger.warning(
+                "%s entity %s dropped from snapshot at t=%.6f: %s.",
+                label,
+                entity.id,
+                time,
+                exc,
+            )
             continue
-        
-        ids.append(entity.id)
-        positions.append(state.position)
-        velocities.append(state.velocity)
-        orientations.append(state.orientation)
-        angular_vels.append(state.angular_velocity)
-    
-    return _EntityBatch(
-        ids=tuple(ids),
-        positions=_stack_or_empty(positions, 3),
-        velocities=_stack_or_empty(velocities, 3),
-        orientations=_stack_or_empty(orientations, 4),
-        angular_velocities=_stack_or_empty(angular_vels, 3)
-    )
 
+        ids[write] = entity.id
+        positions[write] = state.position
+        velocities[write] = state.velocity
+        orienations[write] = state.orientation
+        angular_velocities[write] = state.angular_velocity
+        write += 1
+        
+    return _EntityBatch(
+        ids=tuple(ids[:write]),
+        positions=positions[:write],
+        velocities=velocities[:write],
+        orientations=orienations[:write],
+        angular_velocities=angular_velocities[:write]
+        )
+
+def _concat(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
+    out = np.empty((len(a) + len(b), a.shape[1]), dtype=a.dtype)
+    out[:len(a)] = a
+    out[len(a):] = b
+    return out
+    
 def _combine(a: _EntityBatch, b: _EntityBatch) -> _EntityBatch:
     if a.n == 0:
         return b
@@ -134,9 +151,9 @@ def _combine(a: _EntityBatch, b: _EntityBatch) -> _EntityBatch:
     
     return _EntityBatch(
         ids = a.ids + b.ids,
-        positions=np.vstack((a.positions, b.positions)),
-        velocities=np.vstack((a.velocities, b.velocities)),
-        orientations=np.vstack((a.orientations, b.orientations)),
-        angular_velocities=np.vstack((a.angular_velocities, b.angular_velocities))
+        positions=_concat(a.positions, b.positions),
+        velocities=_concat(a.velocities, b.velocities),
+        orientations=_concat(a.orientations, b.orientations),
+        angular_velocities=_concat(a.angular_velocities, b.angular_velocities)
     )
       

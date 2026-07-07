@@ -4,6 +4,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .entity import Entity
 
+####################################################################
+# Base class
+####################################################################
+
 class RadarComponent():
     __slots__ = ("_entity",)
     
@@ -29,3 +33,30 @@ class RadarComponent():
 
     def on_update(self, time: float) -> None:
         pass
+    
+#####################################################################
+# Derived Classes
+#####################################################################
+
+class TransmitterComponent(RadarComponent):
+    __slots__ = ("frequency", "peak_power", "gain_pattern")
+    
+    def __init__(self, frequency: float = 10e9, peak_power:float = 1000.0) -> None:
+        super().__init__()
+        self.frequency = frequency
+        self.peak_power = peak_power
+    
+
+class ReceiverComponent(RadarComponent):
+    __slots__ = ("noise_figure", "bandwidth")
+    
+    def __init__(self, noise_figure: float = 3.0, bandwidth: float = 1e6) -> None:
+        super().__init__()
+
+
+class TargetComponent(RadarComponent):
+    __slots__ = ("rcs_sqm",)
+    
+    def __init__(self, rcs_sqm: float = 1.0) -> None:
+        super().__init__()
+        self.rcs_sqm = rcs_sqm

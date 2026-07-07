@@ -3,7 +3,7 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import Mock, MagicMock
 
-from src.mimo.scene.scene_manager import SceneManager, _EntityBatch, _collect_entities, _stack_or_empty
+from src.mimo.scene.scene_manager import SceneManager, _EntityBatch, _collect_entities
 from src.mimo.scene.scene import Scene
 from src.mimo.geometry.motion_model import MotionModel
 from src.mimo.entity.entity import Entity

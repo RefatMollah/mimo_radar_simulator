@@ -44,7 +44,6 @@ class Entity():
             raise ComponentAlreadyAttachedError(component_type.__name__)
         
         self._radar_components[component_type] = component
-
         component.on_attach(self)
     
     def has_component(self, component_type: type[C]) -> bool:
@@ -61,9 +60,7 @@ class Entity():
     
     def remove_component(self, component_type: type[C]) -> None:
         component = self.get_component(component_type)
-        
         component.on_detach()
-        
         del self._radar_components[component_type]
    
 

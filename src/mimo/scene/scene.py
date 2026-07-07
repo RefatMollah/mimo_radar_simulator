@@ -30,7 +30,6 @@ class EntityNotFoundError(Exception):
             f"Entity '{entity_id}' not found in this scene."
         )
 
-
 #################################################################################
 # Scene
 #################################################################################
@@ -40,8 +39,7 @@ class Scene:
     def __init__(self) -> None:
         self._static_entities: dict[str, Entity] = {}
         self._dynamic_entities: dict[str, Entity] = {}
-        
-    
+         
     def add_entity(self, entity:Entity, static: bool=False) -> None:
         if entity.id in self._static_entities or entity.id in self._dynamic_entities:
             raise DuplicateEntityError(entity.id)
@@ -50,7 +48,6 @@ class Scene:
             self._static_entities[entity.id] = entity
         else:
             self._dynamic_entities[entity.id] = entity
-    
     
     def remove_entity(self, entity_id: str) -> None:
         if entity_id in self._static_entities:
@@ -61,7 +58,6 @@ class Scene:
             return
         raise EntityNotFoundError(entity_id)
     
-    
     def get_entity(self, entity_id: str) -> Entity:
         
         if entity_id in self._static_entities:
@@ -69,7 +65,6 @@ class Scene:
         if entity_id in self._dynamic_entities:
             return self._dynamic_entities[entity_id]
         raise EntityNotFoundError(entity_id)
-    
     
     def iter_static(self) -> Iterator[Entity]:
         yield from self._static_entities.values()
@@ -80,7 +75,6 @@ class Scene:
     def iter_all(self) -> Iterator[Entity]:
         yield from self._static_entities.values()
         yield from self._dynamic_entities.values()
-    
     
     @property
     def entity_count(self) -> int:
