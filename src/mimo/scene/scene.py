@@ -39,6 +39,14 @@ class Scene:
     def __init__(self) -> None:
         self._static_entities: dict[str, Entity] = {}
         self._dynamic_entities: dict[str, Entity] = {}
+        self._topology_version = 0
+    
+    @property
+    def topology_version(self) -> int:
+        return self._topology_version
+    
+    def _bump_topology(self) -> None:
+        self._topology_version += 1
          
     def add_entity(self, entity:Entity, static: bool=False) -> None:
         if entity.id in self._static_entities or entity.id in self._dynamic_entities:
@@ -48,16 +56,20 @@ class Scene:
             self._static_entities[entity.id] = entity
         else:
             self._dynamic_entities[entity.id] = entity
+            
+        self._bump_topology()
     
     def remove_entity(self, entity_id: str) -> None:
         if entity_id in self._static_entities:
             del self._static_entities[entity_id]
+            self._bump_topology()
             return
         if entity_id in self._dynamic_entities:
             del self._dynamic_entities[entity_id]
+            self._bump_topology()
             return
         raise EntityNotFoundError(entity_id)
-    
+
     def get_entity(self, entity_id: str) -> Entity:
         
         if entity_id in self._static_entities:

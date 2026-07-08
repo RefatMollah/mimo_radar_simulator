@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from ..scene.scene import Scene
 from ..scene.scene_snapshot import SceneSnapshot
-from ..entity.radar_component import RadarComponent, TargetComponent, TransmitterComponent, ReceiverComponent
+from ..entity.radar_component import TargetComponent, TransmitterComponent, ReceiverComponent
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,43 +14,77 @@ class EngagementIndices:
     tgt_idx:  NDArray[np.int_]
     rx_idx:   NDArray[np.int_]
     
+@dataclass(slots=True)
+class _TopologyCache:
+    version: int
+    tx_ids:  tuple[str, ...]
+    tgt_ids: tuple[str, ...]
+    rx_ids:  tuple[str, ...]
     
 class EngagementManager:
     
     def __init__(self, scene: Scene):
         self._scene = scene
+        self._cached_version = -1
+        self._cache: _TopologyCache | None=None
         
         self._engagements = EngagementIndices(
             np.empty(0, dtype=np.int_),
             np.empty(0, dtype=np.int_),
             np.empty(0, dtype=np.int_)
         )
-        self.update()
-    
-    @property
-    def engagements(self) -> EngagementIndices:
-        return self._engagements
-        
-    def update(self) -> None:
-        tx_idx = []
-        tgt_idx = []
-        rx_idx = []
-        
-        for index, entity in enumerate(self._scene.iter_all()):
+        self._refresh_cache()
+        self.engagements = self.engagements
             
-            if entity.has_component(TransmitterComponent):
-                tx_idx.append(index)
-            if entity.has_component(TargetComponent):
-                tgt_idx.append(index)
-            if entity.has_component(ReceiverComponent):
-                rx_idx.append(index)
+    def _refresh_cache(self):
         
-        self._engagements = self._build_engagements(
-            np.asarray(tx_idx, dtype=np.int_),
-            np.asarray(tgt_idx, dtype=np.int_),
-            np.asarray(rx_idx, dtype=np.int_)
+        if self._cached_version == self._scene.topology_version:
+            return
+        
+        tx =  []
+        tgt = []
+        rx =  []
+        
+        for entity in self._scene.iter_all():
+            if entity.has_component(TransmitterComponent):
+                tx.append(entity.id)
+            if entity.has_component(TargetComponent):
+                tgt.append(entity.id)
+            if entity.has_component(ReceiverComponent):
+                rx.append(entity.id)
+        
+        self._cache = _TopologyCache(
+            version = self._scene.topology_version,
+            tx_ids =tuple(tx),
+            tgt_ids=tuple(tgt),
+            rx_ids=tuple(rx)
         )
-      
+        
+        self._cached_version = self._scene.topology_version
+    
+    def engagements(self, snapshot: SceneSnapshot) -> EngagementIndices:
+        self._refresh_cache()
+        assert self._cache is not None
+        
+        lookup = snapshot._lookup
+        
+        tx = np.fromiter(
+            (lookup[e] for e in self._cache.tx_ids),
+            dtype=np.int_
+        )
+        
+        tgt = np.fromiter(
+            (lookup[e] for e in self._cache.tgt_ids),
+            dtype=np.int_
+        )
+        
+        rx = np.fromiter(
+            (lookup[e] for e in self._cache.rx_ids),
+            dtype=np.int_
+        )
+        
+        return self._build_engagements(tx, tgt, rx)
+        
     @staticmethod
     def _build_engagements(
         tx_idx:   NDArray[np.int_],
