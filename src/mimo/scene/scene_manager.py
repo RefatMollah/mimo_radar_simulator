@@ -17,12 +17,16 @@ logger = logging.getLogger(__name__)
 class SceneManager:
     _static_batch: _EntityBatch
     _static_cache_time: float
+    _static_cache_version: int
     
     def __init__(self, scene: Scene, start_time: float =0.0) -> None:
         self._scene = scene
         self._time = start_time
+        
         self._static_batch = _EntityBatch.empty()
         self._static_cache_time = start_time
+        self._static_cache_version = -1
+        
         self.rebuild_static_cache(start_time)
 
     @property
@@ -40,12 +44,18 @@ class SceneManager:
 
     def snapshot_at(self, time: float) -> SceneSnapshot:
         return self._build_snapshot(time)
+    
+    def _ensure_static_cache(self, time: float):
+        if self._static_cache_version != self._scene.topology_version:
+            self.rebuild_static_cache(time)
 
     def rebuild_static_cache(self, time: float | None = None) -> None:
         if time is None:
             time = self._time
+            
         self._static_batch = _collect_entities(self._scene.iter_static(), time, label="Static")
         self._static_cache_time = time
+        self._static_cache_version = self._scene.topology_version
 
     def append_static_entities(self, entities: Iterable[Entity], time:float | None=None) -> None:
         if time is None:
@@ -54,6 +64,10 @@ class SceneManager:
         self._static_batch = _combine(self._static_batch, new_batch)
         
     def _build_snapshot(self, time: float):
+        
+        # Ensure the static entity cache is not stale
+        self._ensure_static_cache(time)
+        
         dynamic_batch = _collect_entities(self._scene.iter_dynamic(), time, label="Dynamic")
         combined = _combine(self._static_batch, dynamic_batch)
         
@@ -69,6 +83,10 @@ class SceneManager:
             angular_velocities=combined.angular_velocities,
             is_static=is_static,
         )
+    
+    @property
+    def static_cache_stale(self) -> bool:
+        return self._static_cache_version != self._scene.topology_version
         
 @dataclass(slots=True, frozen=True)
 class _EntityBatch:
@@ -92,12 +110,10 @@ class _EntityBatch:
             angular_velocities=np.empty((0,3), dtype=np.float64),
         )
     
-
 def _collect_entities(entities: Iterable[Entity], time: float, *, label: str) -> _EntityBatch:
 
     entities = tuple(entities)
     n = len(entities)
-    
     if n == 0:
         return _EntityBatch.empty()
     
@@ -108,7 +124,6 @@ def _collect_entities(entities: Iterable[Entity], time: float, *, label: str) ->
     angular_velocities = np.empty((n, 3), dtype=np.float64)
     
     write = 0
-    
     for entity in entities:
         try:
             state = entity.get_state(time)

@@ -1,120 +1,14 @@
+""" """
+
 import numpy as np
 from typing import Tuple
 from numpy.typing import NDArray
 from dataclasses import dataclass
 
-from ..scene.scene import Scene
+from ..scene.scene import Scene, RadarNetwork, SensorOffsets, EngagementIndices, RadarEngagements, CompiledChannels
 from ..scene.scene_snapshot import SceneSnapshot
-from ..entity.radar_component import TargetComponent, TransmitterComponent, ReceiverComponent
+from ..entity.radar_component import TargetProperties, RadarNode
 
-
-@dataclass(frozen=True, slots=True)
-class EngagementIndices:
-    tx_idx:   NDArray[np.int_]
-    tgt_idx:  NDArray[np.int_]
-    rx_idx:   NDArray[np.int_]
-    
-@dataclass(slots=True)
-class _TopologyCache:
-    version: int
-    tx_ids:  tuple[str, ...]
-    tgt_ids: tuple[str, ...]
-    rx_ids:  tuple[str, ...]
-    
-class EngagementManager:
-    
-    def __init__(self, scene: Scene):
-        self._scene = scene
-        self._cached_version = -1
-        self._cache: _TopologyCache | None=None
-        
-        self._engagements = EngagementIndices(
-            np.empty(0, dtype=np.int_),
-            np.empty(0, dtype=np.int_),
-            np.empty(0, dtype=np.int_)
-        )
-        self._refresh_cache()
-        self.engagements = self.engagements
-            
-    def _refresh_cache(self):
-        
-        if self._cached_version == self._scene.topology_version:
-            return
-        
-        tx =  []
-        tgt = []
-        rx =  []
-        
-        for entity in self._scene.iter_all():
-            if entity.has_component(TransmitterComponent):
-                tx.append(entity.id)
-            if entity.has_component(TargetComponent):
-                tgt.append(entity.id)
-            if entity.has_component(ReceiverComponent):
-                rx.append(entity.id)
-        
-        self._cache = _TopologyCache(
-            version = self._scene.topology_version,
-            tx_ids =tuple(tx),
-            tgt_ids=tuple(tgt),
-            rx_ids=tuple(rx)
-        )
-        
-        self._cached_version = self._scene.topology_version
-    
-    def engagements(self, snapshot: SceneSnapshot) -> EngagementIndices:
-        self._refresh_cache()
-        assert self._cache is not None
-        
-        lookup = snapshot._lookup
-        
-        tx = np.fromiter(
-            (lookup[e] for e in self._cache.tx_ids),
-            dtype=np.int_
-        )
-        
-        tgt = np.fromiter(
-            (lookup[e] for e in self._cache.tgt_ids),
-            dtype=np.int_
-        )
-        
-        rx = np.fromiter(
-            (lookup[e] for e in self._cache.rx_ids),
-            dtype=np.int_
-        )
-        
-        return self._build_engagements(tx, tgt, rx)
-        
-    @staticmethod
-    def _build_engagements(
-        tx_idx:   NDArray[np.int_],
-        tgt_idx:  NDArray[np.int_],
-        rx_idx:   NDArray[np.int_],
-    ) -> EngagementIndices:
-        
-        if tx_idx.size==0 or tgt_idx.size==0 or rx_idx.size==0:
-            empty = np.empty(0, dtype=np.int_)
-            return EngagementIndices(empty, empty, empty)
-        
-        Tx, Tgt, Rx = np.meshgrid(tx_idx, tgt_idx, rx_idx, indexing="ij")
-        
-        tx_flat = Tx.ravel()
-        tgt_flat = Tgt.ravel()
-        rx_flat = Rx.ravel() 
-
-        # An entity may be both a transmitter and receiver (monostatic radar). 
-        # The reflection target cannot be the receiving or transmitting entity.
-        mask = (tx_flat != tgt_flat) & (rx_flat != tgt_flat)
-        
-        return EngagementIndices(
-            tx_flat[mask],
-            tgt_flat[mask],
-            rx_flat[mask],
-        )
-
-###############################################################################################################
-# Computing Geometry
-###############################################################################################################      
 
 QUATERNION_CONJUGATE = np.array([1.0, -1.0, -1.0, -1.0])
 
@@ -136,11 +30,17 @@ class BistaticGeometry:
     tx_elevation:   NDArray[np.float64]
     rx_azimuth:     NDArray[np.float64]
     rx_elevation:   NDArray[np.float64]
+
+@dataclass(frozen=True, slots=True)
+class SensorWorldPoses:
+    """One row per link (mirrors SensorOffsets)"""
+    positions:    NDArray[np.float64]
+    orientations: NDArray[np.float64]
     
 
-def compute_geometry(sc: SceneSnapshot, engagements: EngagementIndices):
+def bistatic_geometry(sc: SceneSnapshot, engagements: RadarEngagements):
     """Calculates the bistatic geometry for a given set of engagements."""
-    tx_idx, tgt_idx, rx_idx = engagements.tx_idx, engagements.tgt_idx, engagements.rx_idx
+    tx_idx, tgt_idx, rx_idx = engagements.indices.tx_slots, engagements.indices.target_slots, engagements.indices.rx_slots        
     
     tx_pos, tgt_pos, rx_pos = sc.positions[tx_idx], sc.positions[tgt_idx], sc.positions[rx_idx]
     tx_vel, tgt_vel, rx_vel = sc.velocities[tx_idx], sc.velocities[tgt_idx], sc.velocities[rx_idx]
@@ -194,8 +94,21 @@ def compute_geometry(sc: SceneSnapshot, engagements: EngagementIndices):
         rx_azimuth=rx_azimuth,
         rx_elevation=rx_elevation
     )
-    
 
+def compile_sensor_world_poses(sc: SceneSnapshot, channel: CompiledChannels) -> SensorWorldPoses:
+    """Apply each link's mounting offset to its parent entity's current pose."""    
+    link_slots = channel.link_slots
+    pos_offsets = channel.sensor_offsets.pos_offsets
+    rot_offsets = channel.sensor_offsets.rot_offsets
+    
+    entity_pos = sc.positions[link_slots]     # (N, 2, 3)
+    entity_ori = sc.orientations[link_slots]  # (N, 2, 4)
+    
+    sensor_pos = entity_pos + rotate_sensor_to_world(entity_ori, pos_offsets)
+    sensor_ori = _quat_multiply(entity_ori, rot_offsets)
+    
+    return SensorWorldPoses(sensor_pos, sensor_ori)
+    
 def rotate_into_sensor_frame(orientations: NDArray[np.float64], vectors: NDArray[np.float64]) -> NDArray[np.float64]:
     """
     Rotate a batch of vectors with a batch of quaternions.
@@ -211,6 +124,18 @@ def rotate_into_sensor_frame(orientations: NDArray[np.float64], vectors: NDArray
     
     # Passive rotation: q'vq
     rotated = _quat_multiply(q_conj, _quat_multiply(v_quat, q)) 
+    
+    return rotated[..., 1:]
+
+def rotate_sensor_to_world(orientations: NDArray[np.float64], vectors: NDArray[np.float64]) -> NDArray[np.float64]:
+    q = _normalise(orientations)
+    q_conj = q * QUATERNION_CONJUGATE 
+    
+    zeros = np.zeros((*vectors.shape[:-1], 1))
+    v_quat = np.concatenate((zeros, vectors), axis=1)
+    
+    
+    rotated = _quat_multiply(q, _quat_multiply(v_quat, q_conj))
     
     return rotated[..., 1:]
 

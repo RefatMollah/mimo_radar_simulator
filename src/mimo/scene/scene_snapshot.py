@@ -10,58 +10,17 @@ from ..geometry.platform_state import PlatformState
 @dataclass(slots=True, frozen=True)
 class SceneSnapshot:
     time: float
-    
     entity_ids: tuple[str, ...]
-    
     positions: NDArray[np.float64]
     velocities: NDArray[np.float64]
     orientations: NDArray[np.float64]
     angular_velocities: NDArray[np.float64]
-    
     is_static: NDArray[np.bool_]
     
-    _lookup: dict[str, int] = field(
-        default_factory=dict,
-        init=False,
-        repr=False,
-        compare=False,
-        hash=False,
-    )
-    
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "_lookup",
-            {eid: i for i, eid in enumerate(self.entity_ids)}
-        )
         
-    def _idx(self, entity_id: str) -> int:
+    def get_entity_state(self, entity_slot: int) -> PlatformState:
         try:
-            return self._lookup[entity_id]
-        except KeyError:
-            raise KeyError(
-                f"Entity '{entity_id} not found in snapshot at t={self.time:.6f} s.'"
-            ) from None
-    
-    def get_position(self, entity_id: str) -> NDArray[np.float64]:
-        return self.positions[self._idx(entity_id)]
-            
-    def get_velocity(self, entity_id: str) -> NDArray[np.float64]:
-        return self.velocities[self._idx(entity_id)]
-                
-    def get_orientation(self, entity_id: str) -> NDArray[np.float64]:
-        return self.orientations[self._idx(entity_id)]
-    
-    def get_angular_velocity(self, entity_id: str) -> NDArray[np.float64]:
-        return self.angular_velocities[self._idx(entity_id)]
-            
-    def get_is_static(self, entity_id: str) -> np.bool_:
-        return self.is_static[self._idx(entity_id)]
-        
-        
-    def get_entity_state(self, entity_id: str) -> PlatformState:
-        try:
-            idx = self._lookup[entity_id]
+            idx = entity_slot
             return PlatformState.fast_create(
                 position=self.positions[idx],
                 velocity=self.velocities[idx],
@@ -71,7 +30,7 @@ class SceneSnapshot:
             )
         except KeyError:
             raise KeyError(
-                f"Entity '{entity_id}' not found in snapshot at t={self.time:.6f} s."
+                f"Entity with slot:'{entity_slot}' not found in snapshot at t={self.time:.6f} s."
             ) from None
     
     def __len__(self) -> int:

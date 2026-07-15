@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 C = TypeVar("C", bound="RadarComponent")
         
 class Entity():
-    __slots__ = ("_id", "_motion_model","_radar_components", "_active")
+    __slots__ = ("_id", "_motion_model","_radar_components", "_active", "_slot")
     
     def __init__(
         self,
@@ -24,7 +24,7 @@ class Entity():
         self._motion_model = motion_model
         self._radar_components: dict[type[RadarComponent], RadarComponent] = {}
         self._active = active
-    
+        self._slot: int = -1
         if components is not None:
             for component in components:
                 self.add_component(component)
@@ -37,9 +37,14 @@ class Entity():
     def active(self) -> bool:
         return self._active
     
+    @property
+    def slot(self) -> int:
+        if self._slot == -1:
+            raise RuntimeError(f"Entity {self._id} has not been added to a Scene.")
+        return self._slot
+    
     def add_component(self, component: RadarComponent) -> None:
         component_type = type(component)
-        
         if component_type in self._radar_components:
             raise ComponentAlreadyAttachedError(component_type.__name__)
         
