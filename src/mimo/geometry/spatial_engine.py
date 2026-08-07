@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Callable, Mapping, Sequence, Any, cast, TypeAl
 from numpy.typing import DTypeLike, NDArray
 
 from ..scene.scene import Scene, CompiledScene, RadarEngagements, CompiledChannels
-from ..scene.scene_snapshot import SceneSnapshot
+from ..scene.snapshot_builder import SceneSnapshot
 from .motion_model import (
     Motion,
     MotionBatch,
@@ -104,7 +104,7 @@ def state_at(scene: CompiledScene, time: ArrayLike) -> State:
         indices = scene.slots_by_motion[motion]
         if indices.size == 0:
             continue
-        block = batch.evaluate(time, xp)
+        block = batch.evaluate(time)
         evaluated.append((indices, block))
     
     state = _assemble_sparse(scene.n, scene.dtype, evaluated, xp)
@@ -157,7 +157,7 @@ def state_at_dense(scene: DenseCompiledScene, time: ArrayLike, *, xp: Backend = 
     out = _empty_state_arrays(scene.n, scene.dtype, xp)
     
     for kind, batch in scene.dense_batches.items():
-        block = batch.evaluate(time, xp=xp)
+        block = batch.evaluate(time)
         mask = scene.masks[kind]
         
         for name, _ in _FIELD_WIDTHS:

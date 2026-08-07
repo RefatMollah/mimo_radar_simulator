@@ -26,6 +26,7 @@ def quat_multiply(q1: ArrayLike,
                   q2: ArrayLike,
                   *,
                   xp: Backend = np,
+                  dtype: DTypeLike = np.float32
     ) -> ArrayLike:
     """Hamilton porduct of two arrays of quaternions."""
     w1, x1, y1, z1 = xp.split(q1, 4, axis=-1)
@@ -64,4 +65,4 @@ def axis_angle_delta_quat(omega: ArrayLike,
         dq[mask, 1:] = axis * xp.sin(half)
     
     return dq
-         
+

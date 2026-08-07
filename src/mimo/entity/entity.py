@@ -5,7 +5,6 @@ from typing import Iterable, cast, TypeVar, TYPE_CHECKING
 from uuid import uuid4
 import numpy as np
 
-from ..geometry.platform_state import PlatformState
 from ..geometry.motion_model import Motion, StaticMotion
 
 if TYPE_CHECKING:
