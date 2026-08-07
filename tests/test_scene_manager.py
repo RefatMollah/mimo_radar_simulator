@@ -3,7 +3,7 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import Mock, MagicMock
 
-from src.mimo.scene.scene_manager import SceneManager, _EntityBatch, _collect_entities
+from mimo.scene.snapshot_builder import SnapshotBuilder, _EntityBatch, _collect_entities
 from src.mimo.scene.scene import Scene
 from src.mimo.geometry.motion_model import MotionModel
 from src.mimo.entity.entity import Entity
@@ -50,7 +50,7 @@ class TestInitStaticCaching:
     def test_no_static_entities_gives_empty_arrays(self, scene):
         scene.iter_static.return_value = []
         
-        manager = SceneManager(scene, start_time=0.0)
+        manager = SnapshotBuilder(scene, start_time=0.0)
         
         assert manager._static_batch.n == 0
         assert manager._static_batch.ids == ()
@@ -64,7 +64,7 @@ class TestInitStaticCaching:
         e1 = make_entity("e1", state=state)
         scene.iter_static.return_value = [e1]
         
-        manager = SceneManager(scene, start_time=1.0)
+        manager = SnapshotBuilder(scene, start_time=1.0)
         
         assert manager._static_batch.n == 1
         assert manager._static_batch.ids == ("e1",)

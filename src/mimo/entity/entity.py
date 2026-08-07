@@ -1,7 +1,12 @@
 from __future__ import annotations
+
 from typing import Iterable, cast, TypeVar, TYPE_CHECKING
+
 from uuid import uuid4
-from src.mimo.geometry.motion_model import MotionModel
+import numpy as np
+
+from ..geometry.platform_state import PlatformState
+from ..geometry.motion_model import Motion, StaticMotion
 
 if TYPE_CHECKING:
     from .radar_component import RadarComponent
@@ -9,19 +14,18 @@ if TYPE_CHECKING:
 C = TypeVar("C", bound="RadarComponent")
         
 class Entity():
-    __slots__ = ("_id", "_motion_model","_radar_components", "_active", "_slot")
+    __slots__ = ("_id", "_motion","_radar_components", "_active", "_slot", "_static")
     
     def __init__(
         self,
-        motion_model: MotionModel,
-        components: Iterable[RadarComponent] | None = None,
+        motion: Motion,
+        components: Iterable[RadarComponent] | None=None,
         entity_id: str | None = None,
         active: bool = True,
-
     ) -> None:
         
         self._id = entity_id or str(uuid4())
-        self._motion_model = motion_model
+        self._motion = motion
         self._radar_components: dict[type[RadarComponent], RadarComponent] = {}
         self._active = active
         self._slot: int = -1
@@ -43,6 +47,17 @@ class Entity():
             raise RuntimeError(f"Entity {self._id} has not been added to a Scene.")
         return self._slot
     
+    @property
+    def motion(self) -> Motion:
+        return self._motion
+    
+    @property
+    def is_static(self) -> bool:
+        return isinstance(self.motion, StaticMotion)
+    
+    def set_slot(self, slot: int) -> None:
+        self._slot = slot
+    
     def add_component(self, component: RadarComponent) -> None:
         component_type = type(component)
         if component_type in self._radar_components:
@@ -60,14 +75,16 @@ class Entity():
         except KeyError:
             raise ComponentNotFoundError(component_type.__name__)
     
-    def get_state(self, time: float):
-        return self._motion_model.get_state(time)
+    @property
+    def static(self) -> np.bool_:
+        return self._static
     
+
     def remove_component(self, component_type: type[C]) -> None:
         component = self.get_component(component_type)
         component.on_detach()
         del self._radar_components[component_type]
-   
+    
 
 ##################################################################################################################
 # Exceptions

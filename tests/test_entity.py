@@ -20,7 +20,7 @@ def entity_fixture(mock_motion_model):
 def create_entity(mock_motion_model):
     
     def _create_entity():
-        return Entity(motion_model=mock_motion_model)
+        return Entity(motion=mock_motion_model)
 
     return _create_entity
 

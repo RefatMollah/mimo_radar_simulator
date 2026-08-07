@@ -1,41 +1,217 @@
 """ """
 
+from __future__ import annotations
+
 import numpy as np
-from typing import Tuple
+
 from numpy.typing import NDArray
-from dataclasses import dataclass
+from dataclasses import dataclass, replace, fields
 
-from ..scene.scene import Scene, RadarNetwork, SensorOffsets, EngagementIndices, RadarEngagements, CompiledChannels
+from typing import TYPE_CHECKING, Callable, Mapping, Sequence, Any, cast, TypeAlias
+from numpy.typing import DTypeLike, NDArray
+
+from ..scene.scene import Scene, CompiledScene, RadarEngagements, CompiledChannels
 from ..scene.scene_snapshot import SceneSnapshot
-from ..entity.radar_component import TargetProperties, RadarNode
+from .motion_model import (
+    Motion,
+    MotionBatch,
+    MotionBlock,
+)
 
+ArrayLike: TypeAlias = Any
+Backend: TypeAlias = Any
+
+
+_FIELD_WIDTHS: tuple[tuple[str, int], ...] = (
+    ("positions",     3),
+    ("velocities",    3),
+    ("accelerations", 3),
+    ("orientations",  4),
+    ("angular_rates", 3),
+)
+
+@dataclass
+class State:
+    """Full-scene numeric result."""
+
+    time: float | None
+    positions: NDArray[np.floating]
+    velocities: NDArray[np.floating]
+    accelerations: NDArray[np.floating]
+    orientations: NDArray[np.floating]
+    angular_rates: NDArray[np.floating]
+
+
+@dataclass
+class DenseCompiledScene:
+    n: int
+    dtype: np.dtype
+    dense_batches: Mapping[type[Motion], MotionBatch]
+    masks: Mapping[type[Motion], NDArray[np.bool_]]
+
+
+def _scatter_rows(
+    base: ArrayLike, 
+    indices: ArrayLike, 
+    values: ArrayLike,
+    *, 
+    xp: Backend,
+) -> ArrayLike:
+    
+    if indices.shape[0] == 0:
+        return base
+    
+    if xp is np:
+        result = base.copy()
+        result[indices] = values
+        return result
+    
+    return base.at[indices].set(values)
+
+
+def _empty_state_arrays(n: int, dtype: Any, xp: Backend) -> dict[str, ArrayLike]:
+    return{
+        name: xp.zeros((n, width), dtype=dtype)
+        for name, width in _FIELD_WIDTHS
+    }
+
+
+def _assemble_sparse(
+    n: int,
+    dtype: Any,
+    blocks: Sequence[tuple[ArrayLike, MotionBlock]],
+    xp: Backend
+) -> State:
+    """Evaluate compact batches, then scatter each field into scene slots."""
+    out = _empty_state_arrays(n, dtype, xp)
+    if not blocks:
+        return State(time=None, **out)
+    
+    indices = xp.concatenate([idx for idx, _ in blocks])
+    
+    for name, _ in _FIELD_WIDTHS:
+        values = xp.concatenate([getattr(block, name) for _, block in blocks])
+        out[name] = _scatter_rows(out[name], indices, values, xp=xp)
+    
+    return State(time=None, **out)
+
+
+def state_at(scene: CompiledScene, time: ArrayLike) -> State:
+    xp = scene.xp
+    evaluated: list[tuple[ArrayLike, MotionBlock]] = []
+    
+    for motion, batch in scene.motion_batches.items():
+        indices = scene.slots_by_motion[motion]
+        if indices.size == 0:
+            continue
+        block = batch.evaluate(time, xp)
+        evaluated.append((indices, block))
+    
+    state = _assemble_sparse(scene.n, scene.dtype, evaluated, xp)
+    return replace(state, time=time)
+
+
+def _densify_batch(batch: MotionBatch, indices: ArrayLike, n: int, xp: Backend) -> MotionBatch:
+    kwargs: dict[str, ArrayLike] = {}
+    
+    field_names = [
+        attr for cls in type(batch).__mro__ if hasattr(cls, "__slots__")
+        for attr in cls.__slots__ if not attr.startswith("_")
+    ]
+    
+    for field in field_names:
+        compact = getattr(batch, field.name)
+        full = xp.zeros((n,) + compact.shape[1:], dtype=compact.dtype)
+        kwargs[field.name] = _scatter_rows(full, indices, compact, xp=xp)
+    
+    return type(batch)(**kwargs)
+
+
+def densify(scene: CompiledScene, *, xp: Backend = np) -> DenseCompiledScene:
+    dense_batches: dict[type[Motion], MotionBatch] = {}
+    masks: dict[type[Motion], ArrayLike] = {}
+    
+    for motion, batch in scene.motion_batches.items():
+        indices = scene.slots_by_motion[motion]
+        dense_batches[motion] = _densify_batch(batch, indices, scene.n, xp)
+        
+        mask = np.zeros((scene.n, 1), dtype=bool)
+        if indices.size:
+            mask = _scatter_rows(
+                mask,
+                indices,
+                xp.ones((indices.size, 1), dtype=bool),
+                xp=xp
+            )
+        masks[motion] = mask
+
+    return DenseCompiledScene(
+        n=scene.n,
+        dtype=scene.dtype,
+        dense_batches=dense_batches,
+        masks=masks,
+    )
+    
+
+def state_at_dense(scene: DenseCompiledScene, time: ArrayLike, *, xp: Backend = np) -> State:
+    out = _empty_state_arrays(scene.n, scene.dtype, xp)
+    
+    for kind, batch in scene.dense_batches.items():
+        block = batch.evaluate(time, xp=xp)
+        mask = scene.masks[kind]
+        
+        for name, _ in _FIELD_WIDTHS:
+            out[name] = xp.where(mask, getattr(block, name), out[name])
+        
+    return State(time=time, **out)
+     
+ 
+def check_causality(
+    batches: Mapping[type[Motion], MotionBatch],
+    time: ArrayLike,
+) -> None:
+    """Validate reference-time constraints on the Python/NumPy side."""
+    requested = np.asarray(time)
+
+    for motion, batch in batches.items():
+        raw_initial_times = getattr(batch, "initial_times", None)
+        if raw_initial_times is None:
+            continue
+
+        initial_times = np.asarray(raw_initial_times)
+        if np.any(requested < initial_times):
+            raise ValueError(
+                f"Cannot evaluate motion class {motion.__name__!r} before its "
+                f"reference time (requested t={time!r})."
+            )  
+        
 
 QUATERNION_CONJUGATE = np.array([1.0, -1.0, -1.0, -1.0])
-
+        
 @dataclass(frozen=True, slots=True)
 class BistaticGeometry:
     """
     Container for coputed bistatic radar geometry.
     Coordinate frame: east-north-up (ENU)
     """
-    tx_los:         NDArray[np.float64]
-    rx_los:         NDArray[np.float64]
+    tx_los:         NDArray[np.float32]
+    rx_los:         NDArray[np.float32]
     
-    tx_range:       NDArray[np.float64]
-    rx_range:       NDArray[np.float64]
+    tx_range:       NDArray[np.float32]
+    rx_range:       NDArray[np.float32]
     
-    bistatic_range_rate: NDArray[np.float64]
+    bistatic_range_rate: NDArray[np.float32]
     
-    tx_azimuth:     NDArray[np.float64]
-    tx_elevation:   NDArray[np.float64]
-    rx_azimuth:     NDArray[np.float64]
-    rx_elevation:   NDArray[np.float64]
+    tx_azimuth:     NDArray[np.float32]
+    tx_elevation:   NDArray[np.float32]
+    rx_azimuth:     NDArray[np.float32]
+    rx_elevation:   NDArray[np.float32]
 
 @dataclass(frozen=True, slots=True)
 class SensorWorldPoses:
     """One row per link (mirrors SensorOffsets)"""
-    positions:    NDArray[np.float64]
-    orientations: NDArray[np.float64]
+    positions:    NDArray[np.float32]
+    orientations: NDArray[np.float32]
     
 
 def bistatic_geometry(sc: SceneSnapshot, engagements: RadarEngagements):
@@ -109,7 +285,7 @@ def compile_sensor_world_poses(sc: SceneSnapshot, channel: CompiledChannels) -> 
     
     return SensorWorldPoses(sensor_pos, sensor_ori)
     
-def rotate_into_sensor_frame(orientations: NDArray[np.float64], vectors: NDArray[np.float64]) -> NDArray[np.float64]:
+def rotate_into_sensor_frame(orientations: NDArray[np.float32], vectors: NDArray[np.float32]) -> NDArray[np.float32]:
     """
     Rotate a batch of vectors with a batch of quaternions.
     Convention: [w, x, y, z]
@@ -120,26 +296,26 @@ def rotate_into_sensor_frame(orientations: NDArray[np.float64], vectors: NDArray
     q_conj = q * QUATERNION_CONJUGATE
     
     zeros = np.zeros((*vectors.shape[:-1], 1))
-    v_quat = np.concatenate((zeros, vectors), axis=-1)
+    v_quat = np.concatenate((zeros, vectors), axis=-1, dtype=np.float32)
     
     # Passive rotation: q'vq
     rotated = _quat_multiply(q_conj, _quat_multiply(v_quat, q)) 
     
     return rotated[..., 1:]
 
-def rotate_sensor_to_world(orientations: NDArray[np.float64], vectors: NDArray[np.float64]) -> NDArray[np.float64]:
+def rotate_sensor_to_world(orientations: NDArray[np.float32], vectors: NDArray[np.float32]) -> NDArray[np.float32]:
     q = _normalise(orientations)
     q_conj = q * QUATERNION_CONJUGATE 
     
     zeros = np.zeros((*vectors.shape[:-1], 1))
-    v_quat = np.concatenate((zeros, vectors), axis=1)
+    v_quat = np.concatenate((zeros, vectors), axis=1, dtype=np.float32)
     
     
     rotated = _quat_multiply(q, _quat_multiply(v_quat, q_conj))
     
     return rotated[..., 1:]
 
-def _quat_multiply(q1: NDArray[np.float64], q2: NDArray[np.float64]) -> NDArray[np.float64]:
+def _quat_multiply(q1: NDArray[np.float32], q2: NDArray[np.float32]) -> NDArray[np.float32]:
     """Hamilton porduct of two arrays of quaternions."""
     w1, x1, y1, z1 = np.split(q1, 4, axis=-1)
     w2, x2, y2, z2 = np.split(q2, 4, axis=-1)
@@ -149,9 +325,9 @@ def _quat_multiply(q1: NDArray[np.float64], q2: NDArray[np.float64]) -> NDArray[
         w2*x1 + x2*w1 - y2*z1 + z2*y1,
         w2*y1 + x2*z1 + y2*w1 - z2*x1,
         w2*z1 - x2*y1 + y2*x1 + z2*w1
-    ), axis=-1)
+    ), axis=-1, dtype=np.float32)
     
-def _normalise(v: NDArray[np.float64]) -> NDArray[np.float64]:
+def _normalise(v: NDArray[np.float32]) -> NDArray[np.float32]:
     mag = np.linalg.norm(v, axis=-1, keepdims=True)
     return np.divide(v, mag, out=np.zeros_like(v), where= mag>0)
     

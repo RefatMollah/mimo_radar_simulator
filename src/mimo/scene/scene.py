@@ -2,25 +2,56 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Tuple
+from collections import defaultdict
 from dataclasses import dataclass
 import numpy as np
-from numpy.typing import NDArray
+
+from typing import TYPE_CHECKING, Dict, Mapping, Any, TypeAlias, NamedTuple
+from numpy.typing import NDArray, DTypeLike
 
 from ..entity.radar_component import TransmitterElement, ReceiverElement, RadarNode, RadarComponent, TargetProperties
+from ..geometry.spatial_engine import MotionBatch
+from ..geometry.motion_model import build_batch, Motion
 
 if TYPE_CHECKING:
     from ..entity.entity import Entity
     
 logger = logging.getLogger(__name__)
 
+Backend: TypeAlias = Any
+
+class BackendContext:
+    def __init__(self, xp: Backend=np, dtype=np.float32):
+        self.xp = xp
+        self.dtype = np.dtype(dtype)
+
+    def array(self, val):
+        return self.xp.asarray(val, dtype=self.dtype)
+
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledScene:
+    version: int
+    entity_ids: tuple[str, ...]
+    is_static: NDArray[np.bool_]
+    is_active: NDArray[np.bool_]
+    slots_by_motion: Mapping[type[Motion], NDArray[np.intp]]
+    motion_batches: Mapping[type[Motion], MotionBatch]
+    dtype: np.dtype[Any]
+    xp: Backend
+    
+    @property
+    def n(self) -> int:
+        return len(self.entity_ids)
+
+
 class Scene:
     
     def __init__(self) -> None:
-        self._static_entities: dict[int, Entity] = {}
-        self._dynamic_entities: dict[int, Entity] = {}
+        self._entities: dict[int, Entity] = {}
+        self._slots_by_id: Dict[str, int] = {}
         
-        self._entity_ids: dict[str, Entity] = {}
         self._free_slots: list[int] = []
         self._next_slot = 0
         self._topology_version = 0
@@ -32,66 +63,103 @@ class Scene:
     @property
     def max_slots(self) -> int:
         return self._next_slot
-    
-    def _bump_topology(self) -> None:
-        self._topology_version += 1
+
+    @property
+    def entity_count(self) -> int:
+        return len(self._entities) 
          
-    def add_entity(self, entity:Entity, static: bool=False) -> None:
-        
+    def add_entity(self, entity: Entity) -> int:
+        """Register `entity` and return its slot.
+        """
+        entity_id = entity.id
+        if entity_id in self._slots_by_id:
+            raise DuplicateEntityError(f"Entity ID: {entity_id!r} is already registered.")
+
         if self._free_slots:
             slot = self._free_slots.pop()
         else:
             slot = self._next_slot
-            self._next_slot +=1
-        
-        entity._slot = slot
-        self._entity_ids[entity.id] = entity
+            self._next_slot += 1
 
-        if static:
-            self._static_entities[slot] = entity
-        else:
-            self._dynamic_entities[slot] = entity
-            
+        entity.set_slot(slot)
+        self._entities[slot] = entity
+        self._slots_by_id[entity_id] = slot
         self._bump_topology()
+        return slot
     
     def remove_entity(self, entity_id: str) -> None:
-        entity = self._entity_ids.pop(entity_id, None)
-        if not entity:
+        slot = self._slots_by_id.pop(entity_id, None)
+        if slot is None:
             raise EntityNotFoundError(entity_id)
-        
-        slot = entity.slot
-        self._static_entities.pop(slot, None)
-        self._dynamic_entities.pop(slot, None)
-        
-        self._free_slots.append(slot)
-        entity._slot = -1
-        self._bump_topology()
 
+        entity = self._entities.pop(slot)
+        entity._slot = -1
+        self._free_slots.append(slot)
+        self._bump_topology()
+        
     def get_entity(self, entity_id: str) -> Entity:
-        try:
-            return self._entity_ids[entity_id]
-        except KeyError:
+        slot = self._slots_by_id.get(entity_id)
+        if slot is None:
             raise EntityNotFoundError(entity_id)
+        return self._entities[slot]
+    
+    def _bump_topology(self) -> None:
+        self._topology_version += 1
+        
+    @staticmethod
+    def _set_entity_slot(entity: Entity, slot: int) -> None:
+        entity.set_slot(slot)
     
     def iter_static(self) -> Iterator[Entity]:
-        yield from self._static_entities.values()
-    
+        return (e for e in self._entities.values() if e.static)
+
     def iter_dynamic(self) -> Iterator[Entity]:
-        yield from self._dynamic_entities.values()
-    
-    
+        return (e for e in self._entities.values() if not e.static)
+
     def iter_all(self) -> Iterator[Entity]:
-        yield from self._static_entities.values()
-        yield from self._dynamic_entities.values()
+        return iter(self._entities.values())
     
-    @property
-    def entity_count(self) -> int:
-        return len(self._static_entities) + len(self._dynamic_entities)
+    def compile(self, dtype: DTypeLike = np.float32, xp: Backend = np) -> CompiledScene:
+        """Snapshot the current topology and per-entity motion parameters
+        into an immutable `CompiledSimulation`.
+
+        """
+        n = self._next_slot
+        entity_ids: list[str] = [""] * n
+        is_static = np.zeros(n, dtype=np.bool_)
+        is_active = np.zeros(n, dtype=np.bool_)
+        buckets: dict[type[Motion], list[Entity]] = {}
+
+        for slot, entity in self._entities.items():
+            entity_ids[slot] = entity.id
+            is_static[slot] = entity.is_static
+            is_active[slot] = True
+            buckets[type(entity.motion)].append(entity)
+
+        slots_by_motion: dict[type[Motion], NDArray[np.intp]] = {
+            motion_cls: np.array([e.slot for e in group], dtype=np.intp)
+            for motion_cls, group in buckets.items()
+        }
+        motion_batches: dict[type[Motion], MotionBatch] = {
+            motion_cls: build_batch(motion_cls, group, dtype)
+            for motion_cls, group in buckets.items()
+        }
+
+        return CompiledScene(
+            version=self._topology_version,
+            entity_ids=tuple(entity_ids),
+            is_static=is_static,
+            is_active=is_active,
+            slots_by_motion=slots_by_motion,
+            motion_batches=motion_batches,
+            dtype=np.dtype(dtype),
+            xp=xp,
+        )
+    
     
     def __repr__(self) -> str:
         return (
-            f"Scene(static={len(self._static_entities)}, "
-            f"dynamic={len(self._dynamic_entities)})"
+            f"Scene(Entities={len(self._entities)} "
         )  
 
 
@@ -104,7 +172,8 @@ class ChannelLink:
     rx: ReceiverElement
     active: bool
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(slots=True, frozen=True)
 class EngagementIndices:
     """
     Every valid (transmitter, target, receiver) triple in the network.
@@ -119,6 +188,17 @@ class EngagementIndices:
     target_slots: NDArray[np.int_]
     rx_slots:     NDArray[np.int_]
     link_idx:     NDArray[np.int_]
+    
+    def to_backend(self, xp: Backend = np) -> EngagementIndices:
+        if xp is np:
+            return self
+        return EngagementIndices(
+            tx_slots=xp.asarray(self.tx_slots),
+            target_slots=xp.asarray(self.target_slots),
+            rx_slots=xp.asarray(self.rx_slots),
+            link_idx=xp.asarray(self.link_idx),            
+        )
+    
 
 @dataclass(frozen=True, slots=True)
 class SensorOffsets:
@@ -126,14 +206,16 @@ class SensorOffsets:
     Per-link mounting offsets, row-aligned with CompiledChannels.link_slots such that
     positions[link_slot] += pos_offsets
     """
-    pos_offsets: NDArray[np.float64]   # (n_links, 2, 3) -> [:, 0]=tx, [:, 1]=rx
-    rot_offsets: NDArray[np.float64]   # (n_links, 2, 4) -> [:, 0]=tx, [:, 1]=rx
+    pos_offsets: NDArray[np.float32]   # (n_links, 2, 3) -> [:, 0]=tx, [:, 1]=rx
+    rot_offsets: NDArray[np.float32]   # (n_links, 2, 4) -> [:, 0]=tx, [:, 1]=rx
+
 
 @dataclass
 class CompiledChannels:
     """Active channel links with sensor offsets flattened into aligned NumPy arrays."""
     link_slots:     NDArray[np.int_]   # [tx_slot, rx_slot]
     sensor_offsets: SensorOffsets
+    
 
 @dataclass
 class RadarEngagements:
@@ -141,12 +223,14 @@ class RadarEngagements:
     channel: CompiledChannels
     indices: EngagementIndices
 
+
 @dataclass
 class _EngagementsCache:
     scene_version:   int
     network_version: int
     compiled_links:  CompiledChannels
     engagements:     EngagementIndices
+
     
 class RadarNetwork:
     """
@@ -179,27 +263,7 @@ class RadarNetwork:
             link.active = active
             self._network_version += 1
 
-    def compile_channel_links(self) -> CompiledChannels:
-        """Flatten the active links into aligned arrays for vectorized math."""
-        active_links = [link for link in self._links if link.active]
-
-        link_slots = np.asarray(
-            [(link.tx.slot, link.rx.slot) for link in active_links],
-            dtype=np.int_,
-        )
-        pos_offsets = np.asarray(
-            [(link.tx.pos_offset, link.rx.pos_offset) for link in active_links]
-        )
-        rot_offsets = np.asarray(
-            [(link.tx.rot_offset, link.rx.rot_offset) for link in active_links]
-        )
-
-        return CompiledChannels(
-            link_slots=link_slots,
-            sensor_offsets=SensorOffsets(pos_offsets, rot_offsets),
-        )
-
-    def get_engagements(self) -> RadarEngagements:
+    def get_engagements(self, *, xp: Backend = np) -> RadarEngagements:
         """Return the cached engagements, recomputing if the scene or link set changed."""
         scene_version = self._scene.topology_version
         network_version = self._network_version
@@ -221,12 +285,35 @@ class RadarNetwork:
                 compiled_links=compiled,
                 engagements=engagements,
             )
-        assert self._cache is not None        
+        assert self._cache is not None
+                
         return RadarEngagements(
             channel=self._cache.compiled_links,
             indices=self._cache.engagements,
         )
+        
+    def compile_channel_links(self) -> CompiledChannels:
+        """Flatten the active links into aligned arrays for vectorized math."""
+        active_links = [link for link in self._links if link.active]
 
+        link_slots = np.asarray(
+            [(link.tx.slot, link.rx.slot) for link in active_links],
+            dtype=np.int_,
+        )
+        pos_offsets = np.asarray(
+            [(link.tx.pos_offset, link.rx.pos_offset) for link in active_links],
+            dtype=np.float32
+        )
+        rot_offsets = np.asarray(
+            [(link.tx.rot_offset, link.rx.rot_offset) for link in active_links],
+            dtype=np.float32
+        )
+
+        return CompiledChannels(
+            link_slots=link_slots,
+            sensor_offsets=SensorOffsets(pos_offsets, rot_offsets),
+        )        
+        
     def _collect_target_slots(self) -> NDArray[np.int_]:
         """Slot numbers of every entity in the scene that carries TargetProperties."""
         return np.fromiter(
@@ -269,6 +356,24 @@ class RadarNetwork:
             rx_slots[valid],
             link_idx_per_engagement[valid],
         )
+        
+        
+#-----------------------------------------------------------
+# Radar Network JAX Backend
+#-----------------------------------------------------------
+
+def _channels_to_backend(channels: CompiledChannels, xp: Backend = np) -> CompiledChannels:
+    if xp is np:
+        return channels
+    return CompiledChannels(
+        link_slots=xp.asarray(channels.link_slots),
+        sensor_offsets=SensorOffsets(
+            xp.asarray(channels.sensor_offsets.pos_offsets),
+            xp.asarray(channels.sensor_offsets.rot_offsets),            
+        ),
+    )
+
+
 
 
 #################################################################################
@@ -289,4 +394,10 @@ class EntityNotFoundError(Exception):
     def __init__(self, entity_id: str):
         super().__init__(
             f"Entity '{entity_id}' not found in this scene."
-        ) 
+        )
+
+class InvalidTopologyError(Exception):
+    """Raised when an invalid topology is entered."""
+    
+    def __init__(self, message: str):
+        super().__init__(message) 
