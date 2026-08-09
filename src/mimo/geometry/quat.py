@@ -46,23 +46,23 @@ def quat_normalise(v: ArrayLike, *,xp: Backend = np) -> ArrayLike:
 def axis_angle_delta_quat(omega: ArrayLike, 
                           dt: ArrayLike,
                           *,
-                          xp: ModuleType = np,
+                          xp: Backend = np,
                           dtype: DTypeLike = np.float32,
     ) -> ArrayLike:
     n = omega.shape[0]
     omega_norm = xp.linalg.norm(omega, axis=-1, keepdims=True)
     theta = omega_norm * dt[:, None]
 
-    dq = xp.zeros((n, 4), dtype=dtype)
-    dq[:, 0] = 1.0    # Identity default for ~zero angular rate
+    safe_norm = xp.where(omega_norm > 1e-12, omega_norm, 1.0)
+    axis = omega/ safe_norm
+    half = theta / 2.0
     
-    mask = (omega_norm > 1e-12).squeeze(-1)
-    if xp.any(mask):
-        axis = omega[mask] / omega_norm[mask]
-        half = theta[mask] / 2.0
-        
-        dq[mask, 0] = xp.cos(half).squeeze(-1)
-        dq[mask, 1:] = axis * xp.sin(half)
+    w = xp.cos(half)
+    xyz = axis * xp.sin(half)
     
-    return dq
-
+    dq = xp.concat([w, xyz], axis=-1)
+    dq_identity = xp.tile(xp.astype(xp.array([1.0, 0.0, 0.0, 0.0]), dtype), (omega.shape[0], 1))
+    
+    mask = (omega_norm > 1e-12)
+    return xp.where(mask, dq, dq_identity)    
+    
