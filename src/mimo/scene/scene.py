@@ -6,12 +6,11 @@ from collections import defaultdict
 from dataclasses import dataclass
 import numpy as np
 
-from typing import TYPE_CHECKING, Dict, Mapping, Any, TypeAlias, NamedTuple
+from typing import TYPE_CHECKING, Dict, Mapping, Any, TypeAlias
 from numpy.typing import NDArray, DTypeLike
 
 from ..entity.radar_component import TransmitterElement, ReceiverElement, RadarNode, RadarComponent, TargetProperties
-from ..geometry.spatial_engine import MotionBatch
-from ..geometry.motion_model import build_batch, Motion
+from ..geometry.motion_model import build_batch, Motion, MotionBatch
 
 if TYPE_CHECKING:
     from ..entity.entity import Entity
@@ -111,10 +110,10 @@ class Scene:
         entity.set_slot(slot)
     
     def iter_static(self) -> Iterator[Entity]:
-        return (e for e in self._entities.values() if e.static)
+        return (e for e in self._entities.values() if e.is_static)
 
     def iter_dynamic(self) -> Iterator[Entity]:
-        return (e for e in self._entities.values() if not e.static)
+        return (e for e in self._entities.values() if not e.is_static)
 
     def iter_all(self) -> Iterator[Entity]:
         return iter(self._entities.values())

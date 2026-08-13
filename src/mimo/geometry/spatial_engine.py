@@ -10,13 +10,17 @@ from dataclasses import dataclass, replace, fields
 from typing import TYPE_CHECKING, Callable, Mapping, Sequence, Any, cast, TypeAlias
 from numpy.typing import DTypeLike, NDArray
 
-from ..scene.scene import Scene, CompiledScene, RadarEngagements, CompiledChannels
-from ..scene.snapshot_builder import SceneSnapshot
 from .motion_model import (
     Motion,
     MotionBatch,
     MotionBlock,
 )
+
+if TYPE_CHECKING:
+    from ..scene.scene import CompiledScene, RadarEngagements, CompiledChannels
+    from ..scene.snapshot_builder import SceneSnapshot
+
+
 
 ArrayLike: TypeAlias = Any
 Backend: TypeAlias = Any

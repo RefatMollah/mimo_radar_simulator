@@ -73,12 +73,7 @@ class Entity():
             return cast(C, self._radar_components[component_type])
         except KeyError:
             raise ComponentNotFoundError(component_type.__name__)
-    
-    @property
-    def static(self) -> np.bool_:
-        return self._static
-    
-
+        
     def remove_component(self, component_type: type[C]) -> None:
         component = self.get_component(component_type)
         component.on_detach()

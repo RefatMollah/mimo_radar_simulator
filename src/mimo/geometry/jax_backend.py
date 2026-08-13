@@ -1,20 +1,18 @@
-from typing import Any, Literal, Callable, TypeAlias, TypeVar
+from __future__ import annotations
+
+from typing import Any, Literal, Callable, TypeAlias, TypeVar, TYPE_CHECKING
 from dataclasses import fields, replace
 
-from ..scene.scene import CompiledScene
-from .motion_model import (
-    MotionBatch,
-    Motion,
-)
-from .spatial_engine import State, state_at, densify, state_at_dense
+
+from .spatial_engine import State
 
 ArrayLike: TypeAlias = Any
 _PYTREE_REGISTERED: set[type[Any]] = set()
-_MOTION_TO_BATCH: dict[type[Motion], type[MotionBatch]] = {}
-B = TypeVar("B", bound=MotionBatch)
+_MOTION_TO_BATCH: dict[type[Any], type[Any]] = {}
+B = TypeVar("B")
 
 
-def register_motion_batch(motion_cls: type[Motion]) -> Callable[[type[B]], type[B]]:
+def register_motion_batch(motion_cls: type[Any]) -> Callable[[type[B]], type[B]]:
     """"""
     def decorator(cls: type[B]) -> type[B]:
         if motion_cls in _MOTION_TO_BATCH:
@@ -61,7 +59,7 @@ def _ensure_all_pytrees_registered() -> None:
     _maybe_register_pytree(State)
 
 
-def batch_class_for(motion_cls: type[Motion]) -> type[MotionBatch]:
+def batch_class_for(motion_cls: type[Any]) -> type[Any]:
     try:
         return _MOTION_TO_BATCH[motion_cls]
     except KeyError:

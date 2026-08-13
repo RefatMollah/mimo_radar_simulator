@@ -1,16 +1,21 @@
 import pytest
 from unittest.mock import Mock, MagicMock
 
-from src.mimo.entity.entity import (Entity, ComponentNotFoundError, ComponentAlreadyAttachedError)
 from src.mimo.entity.radar_component import RadarComponent
-from src.mimo.geometry.motion_model import MotionModel
+from src.mimo.geometry.motion_model import Motion
+from src.mimo.entity.entity import (
+    Entity, 
+    ComponentNotFoundError, 
+    ComponentAlreadyAttachedError
+)
+
 
 class MockComponent(RadarComponent):
     pass
 
 @pytest.fixture
 def mock_motion_model():
-    return Mock(spec=MotionModel)
+    return Mock(spec=Motion)
 
 @pytest.fixture
 def entity_fixture(mock_motion_model):

@@ -2,28 +2,28 @@ from __future__ import annotations
 
 import numpy as np
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from enum import Enum
+from dataclasses import dataclass, fields
 
-from typing import Sequence, cast, TypeAlias, Any, Union, TYPE_CHECKING
+from typing import Sequence, cast, TypeAlias, Any, Union, TYPE_CHECKING, TypeVar, Callable
 from numpy.typing import NDArray, DTypeLike
 
-from ..entity.entity import Entity
-from .jax_backend import batch_class_for, register_motion_batch
-
 from .quat import quat_multiply, quat_normalise, axis_angle_delta_quat
-
+from .jax_backend import register_motion_batch, batch_class_for
 
 Backend: TypeAlias = Any
 
 if TYPE_CHECKING:
     from jax import Array as JaxArray
+    from ..entity.entity import Entity
 else:
     JaxArray = Any
     
 ArrayLike: TypeAlias = Union[NDArray, JaxArray]
 
 
+#------------------------------------------------
+# Motion Classes
+#------------------------------------------------
 
 class Motion(ABC):
     
@@ -47,7 +47,6 @@ class StaticMotion(Motion):
         _coerce_quat(self, "orientation", self.xp, self.dtype)
         _coerce_vec3(self, "angular_velocity", self.xp, self.dtype)
     
-
 
 @dataclass(frozen=True, slots=True)
 class ConstantVelocityMotion(Motion):
@@ -108,6 +107,10 @@ def _coerce_quat(obj: object, name: str, xp: Backend = np, dtype: DTypeLike = np
             f"(unit norm); got norm={norm!r}."     
         )
 
+
+#------------------------------------------------
+# Motion Batches
+#------------------------------------------------
 
 # FIXME: fix type inconsistencies in from_entities and evaluate.
 @dataclass
@@ -258,3 +261,4 @@ class ConstantAccelerationBatch(MotionBatch):
             orientations=orientations,
             angular_rates=self.angular_rates,            
         )
+        
