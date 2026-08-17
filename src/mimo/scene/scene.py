@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from collections import defaultdict
 from dataclasses import dataclass
+from collections import defaultdict
 import numpy as np
 
 from typing import TYPE_CHECKING, Dict, Mapping, Any, TypeAlias
@@ -127,7 +127,7 @@ class Scene:
         entity_ids: list[str] = [""] * n
         is_static = np.zeros(n, dtype=np.bool_)
         is_active = np.zeros(n, dtype=np.bool_)
-        buckets: dict[type[Motion], list[Entity]] = {}
+        buckets: dict[type[Motion], list[Entity]] = defaultdict(list)
 
         for slot, entity in self._entities.items():
             entity_ids[slot] = entity.id
@@ -225,10 +225,10 @@ class RadarEngagements:
 
 @dataclass
 class _EngagementsCache:
-    scene_version:   int
-    network_version: int
-    compiled_links:  CompiledChannels
-    engagements:     EngagementIndices
+    scene_version:     int
+    network_version:   int
+    compiled_channels: CompiledChannels
+    engagements:       EngagementIndices
 
     
 class RadarNetwork:
@@ -281,13 +281,13 @@ class RadarNetwork:
             self._cache = _EngagementsCache(
                 scene_version=scene_version,
                 network_version=network_version,
-                compiled_links=compiled,
+                compiled_channels=compiled,
                 engagements=engagements,
             )
         assert self._cache is not None
                 
         return RadarEngagements(
-            channel=self._cache.compiled_links,
+            channel=self._cache.compiled_channels,
             indices=self._cache.engagements,
         )
         
@@ -373,11 +373,9 @@ def _channels_to_backend(channels: CompiledChannels, xp: Backend = np) -> Compil
     )
 
 
-
-
-#################################################################################
+#-----------------------------------------------------------
 # Exceptions
-#################################################################################
+#-----------------------------------------------------------
 
 class DuplicateEntityError(Exception):
     """Raised when an entity UUID is already registered in the scene."""

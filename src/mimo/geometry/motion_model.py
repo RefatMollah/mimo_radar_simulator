@@ -29,6 +29,7 @@ class Motion(ABC):
     
     __slots__ = ()
 
+
 @dataclass(frozen=True, slots=True)
 class StaticMotion(Motion):
     """A fixed, time-invariant state."""
@@ -48,6 +49,7 @@ class StaticMotion(Motion):
         _coerce_vec3(self, "angular_velocity", self.xp, self.dtype)
     
 
+
 @dataclass(frozen=True, slots=True)
 class ConstantVelocityMotion(Motion):
     initial_position: ArrayLike
@@ -64,6 +66,7 @@ class ConstantVelocityMotion(Motion):
         _coerce_vec3(self, "initial_velocity", self.xp, self.dtype)
         _coerce_quat(self, "initial_orientation", self.xp, self.dtype)
         _coerce_vec3(self, "angular_velocity", self.xp, self.dtype)
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +115,6 @@ def _coerce_quat(obj: object, name: str, xp: Backend = np, dtype: DTypeLike = np
 # Motion Batches
 #------------------------------------------------
 
-# FIXME: fix type inconsistencies in from_entities and evaluate.
 @dataclass
 class MotionBlock:
     """Kinematic result for one motion kind's entities, in the same row
