@@ -11,6 +11,7 @@ _PYTREE_REGISTERED: set[type[Any]] = set()
 _MOTION_TO_BATCH: dict[type[Any], type[Any]] = {}
 B = TypeVar("B")
 
+PYTREE_META_FIELDS = frozenset({"xp", "dtype"})
 
 def register_motion_batch(motion_cls: type[Any]) -> Callable[[type[B]], type[B]]:
     """"""
@@ -35,21 +36,15 @@ def _maybe_register_pytree(cls: type[Any]) -> None:
     except ImportError:
         return
     
-    field_names = tuple(f.name for f in fields(cls))
+    all_field_names = tuple(f.name for f in fields(cls))
+    meta = tuple(name for name in all_field_names if name is PYTREE_META_FIELDS)
+    data = tuple(name for name in all_field_names if name not in PYTREE_META_FIELDS)
     
-    def flatten(obj: Any, names: tuple[str, ...] = field_names) -> Any:
-        return tuple(getattr(obj, n) for n in names), None
-    
-    def unflatten(
-        aux: None, 
-        children: tuple[Any, ...], 
-        cls: type[Any] = cls,
-        names: tuple[str, ...] = field_names,
-    ) -> Any:
-        del aux
-        return cls(**dict(zip(names, children)))
-    
-    jax.tree_util.register_pytree_node(cls, flatten, unflatten)
+    jax.tree_util.register_dataclass(
+        cls,
+        data_fields=data,
+        meta_fields=meta
+    )
     _PYTREE_REGISTERED.add(cls)
     
 
