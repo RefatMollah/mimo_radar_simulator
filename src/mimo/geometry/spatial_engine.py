@@ -118,15 +118,21 @@ def state_at(scene: CompiledScene, time: ArrayLike) -> State:
 def _densify_batch(batch: MotionBatch, indices: ArrayLike, n: int, xp: Backend) -> MotionBatch:
     kwargs: dict[str, ArrayLike] = {}
     
-    field_names = [
-        attr for cls in type(batch).__mro__ if hasattr(cls, "__slots__")
-        for attr in cls.__slots__ if not attr.startswith("_")
-    ]
+    skip_fields = {"xp", "dtype"}
     
-    for field in field_names:
-        compact = getattr(batch, field.name)
+    for field in fields(batch):
+        name = field.name
+        
+        if name in skip_fields:
+            continue
+
+        compact = getattr(batch, name)
+        
         full = xp.zeros((n,) + compact.shape[1:], dtype=compact.dtype)
-        kwargs[field.name] = _scatter_rows(full, indices, compact, xp=xp)
+        kwargs[name] = _scatter_rows(full, indices, compact, xp=xp)
+    
+    kwargs["xp"] = batch.xp
+    kwargs["dtype"] = batch.dtype
     
     return type(batch)(**kwargs)
 

@@ -130,9 +130,10 @@ class MotionBlock:
 def build_batch(motion_cls: type[Motion], entities: Sequence[Entity], dtype: DTypeLike) -> MotionBatch:
     return batch_class_for(motion_cls).from_entities(entities, dtype)
 
-
+@dataclass(frozen=True, slots=True, kw_only=True)
 class MotionBatch(ABC):
-    __slots__ = ()
+    xp: Backend = np
+    dtype: DTypeLike = np.float32
     
     @classmethod
     @abstractmethod
@@ -152,8 +153,6 @@ class StaticBatch(MotionBatch):
     orientations: ArrayLike
     angular_rates: ArrayLike
     
-    xp: Backend = np
-    dtype: DTypeLike = np.float32
     
     @classmethod
     def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> StaticBatch:
