@@ -37,7 +37,7 @@ def _maybe_register_pytree(cls: type[Any]) -> None:
         return
     
     all_field_names = tuple(f.name for f in fields(cls))
-    meta = tuple(name for name in all_field_names if name is PYTREE_META_FIELDS)
+    meta = tuple(name for name in all_field_names if name in PYTREE_META_FIELDS)
     data = tuple(name for name in all_field_names if name not in PYTREE_META_FIELDS)
     
     jax.tree_util.register_dataclass(

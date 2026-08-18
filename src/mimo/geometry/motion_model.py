@@ -207,7 +207,7 @@ class ConstantVelocityBatch(MotionBatch):
         dt = time - self.initial_times
         dt_col = dt[:, None]
         positions = self.initial_positions + self.initial_velocities * dt_col
-        dq = axis_angle_delta_quat(self.angular_rates, dt, xp=np)
+        dq = axis_angle_delta_quat(self.angular_rates, dt, xp=xp)
         orientations = quat_normalise(quat_multiply(self.initial_orientations, dq, xp=xp, dtype=dtype), xp=xp)
         
         return MotionBlock(
@@ -252,7 +252,7 @@ class ConstantAccelerationBatch(MotionBatch):
         dt_col = dt[:, None]
         positions = self.initial_positions + self.initial_velocities * dt_col + 0.5 * self.accelerations * dt_col ** 2
         velocities = self.initial_velocities + self.accelerations * dt_col
-        dq = axis_angle_delta_quat(self.angular_rates, dt, xp=np)
+        dq = axis_angle_delta_quat(self.angular_rates, dt, xp=xp)
         orientations = quat_normalise(quat_multiply(self.initial_orientations, dq, xp=xp, dtype=dtype), xp=xp)
         
         return MotionBlock(
