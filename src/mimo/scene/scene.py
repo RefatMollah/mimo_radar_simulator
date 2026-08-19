@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from collections import defaultdict
 import numpy as np
+import jax.numpy as jnp
 
 from typing import TYPE_CHECKING, Dict, Mapping, Any, TypeAlias
 from numpy.typing import NDArray, DTypeLike
@@ -28,21 +29,24 @@ class BackendContext:
         return self.xp.asarray(val, dtype=self.dtype)
 
 
-
 @dataclass(frozen=True, slots=True)
 class CompiledScene:
     version: int
     entity_ids: tuple[str, ...]
     is_static: NDArray[np.bool_]
     is_active: NDArray[np.bool_]
-    slots_by_motion: Mapping[type[Motion], NDArray[np.intp]]
-    motion_batches: Mapping[type[Motion], MotionBatch]
+    slots_by_motion: Mapping[str, NDArray[np.intp]]
+    motion_batches: Mapping[str, MotionBatch]
     dtype: np.dtype[Any]
-    xp: Backend
+    backend: str # "numpy" or "jax"
     
     @property
     def n(self) -> int:
         return len(self.entity_ids)
+    
+    @property
+    def xp(self):
+        return jnp if self.backend == "jax" else np
 
 
 class Scene:
@@ -135,14 +139,17 @@ class Scene:
             is_active[slot] = True
             buckets[type(entity.motion)].append(entity)
 
-        slots_by_motion: dict[type[Motion], NDArray[np.intp]] = {
-            motion_cls: np.array([e.slot for e in group], dtype=np.intp)
+        slots_by_motion: dict[str, NDArray[np.intp]] = {
+            motion_cls.__name__: np.array([e.slot for e in group], dtype=np.intp)
             for motion_cls, group in buckets.items()
         }
-        motion_batches: dict[type[Motion], MotionBatch] = {
-            motion_cls: build_batch(motion_cls, group, dtype)
+        motion_batches: dict[str, MotionBatch] = {
+            motion_cls.__name__: build_batch(motion_cls, group, dtype, xp)
             for motion_cls, group in buckets.items()
         }
+        backend = "numpy"
+        if xp == jnp:
+            backend = "jax"
 
         return CompiledScene(
             version=self._topology_version,
@@ -152,7 +159,7 @@ class Scene:
             slots_by_motion=slots_by_motion,
             motion_batches=motion_batches,
             dtype=np.dtype(dtype),
-            xp=xp,
+            backend=backend,
         )
     
     

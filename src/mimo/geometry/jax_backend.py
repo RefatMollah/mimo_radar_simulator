@@ -5,6 +5,7 @@ from dataclasses import fields, replace
 
 
 from .spatial_engine import State
+from ..scene.scene import CompiledScene
 
 ArrayLike: TypeAlias = Any
 _PYTREE_REGISTERED: set[type[Any]] = set()
@@ -51,7 +52,17 @@ def _maybe_register_pytree(cls: type[Any]) -> None:
 def _ensure_all_pytrees_registered() -> None:
     for cls in _MOTION_TO_BATCH.values():
         _maybe_register_pytree(cls)
+    
     _maybe_register_pytree(State)
+    if CompiledScene in _PYTREE_REGISTERED:
+        return
+    else:
+        import jax
+        jax.tree_util.register_dataclass(
+            CompiledScene,
+            data_fields=("is_static", "is_active", "slots_by_motion", "motion_batches"),
+            meta_fields=("version", "entity_ids", "dtype", "backend")       
+        )
 
 
 def batch_class_for(motion_cls: type[Any]) -> type[Any]:

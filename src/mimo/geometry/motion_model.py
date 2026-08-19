@@ -68,7 +68,6 @@ class ConstantVelocityMotion(Motion):
         _coerce_vec3(self, "angular_velocity", self.xp, self.dtype)
 
 
-
 @dataclass(frozen=True, slots=True)
 class ConstantAccelerationMotion(Motion):
     initial_position: ArrayLike
@@ -127,7 +126,7 @@ class MotionBlock:
     angular_rates: ArrayLike
 
 
-def build_batch(motion_cls: type[Motion], entities: Sequence[Entity], dtype: DTypeLike) -> MotionBatch:
+def build_batch(motion_cls: type[Motion], entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> MotionBatch:
     return batch_class_for(motion_cls).from_entities(entities, dtype)
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -137,7 +136,7 @@ class MotionBatch(ABC):
     
     @classmethod
     @abstractmethod
-    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike) -> MotionBatch:
+    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> MotionBatch:
         ...
     
     @abstractmethod

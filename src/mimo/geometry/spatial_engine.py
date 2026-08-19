@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+import jax
+import jax.numpy as jnp
 
 from numpy.typing import NDArray
 from dataclasses import dataclass, replace, fields
@@ -50,8 +52,8 @@ class State:
 class DenseCompiledScene:
     n: int
     dtype: np.dtype
-    dense_batches: Mapping[type[Motion], MotionBatch]
-    masks: Mapping[type[Motion], NDArray[np.bool_]]
+    dense_batches: Mapping[str, MotionBatch]
+    masks: Mapping[str, NDArray[np.bool_]]
 
 
 def _scatter_rows(
@@ -100,20 +102,33 @@ def _assemble_sparse(
     return State(time=None, **out)
 
 
-def state_at(scene: CompiledScene, time: ArrayLike) -> State:
+def _state_at_impl(scene: CompiledScene, time: ArrayLike) -> State:
     xp = scene.xp
     evaluated: list[tuple[ArrayLike, MotionBlock]] = []
     
-    for motion, batch in scene.motion_batches.items():
-        indices = scene.slots_by_motion[motion]
+    for motion_name, batch in scene.motion_batches.items():
+        indices = scene.slots_by_motion[motion_name]
         if indices.size == 0:
             continue
         block = batch.evaluate(time)
         evaluated.append((indices, block))
+        
+    state = _assemble_sparse(scene.n, scene.dtype, evaluated, xp=xp)
     
-    state = _assemble_sparse(scene.n, scene.dtype, evaluated, xp)
     return replace(state, time=time)
 
+
+_jitted_state_at = jax.jit(_state_at_impl)
+
+
+def state_at(scene: CompiledScene, time: ArrayLike) -> State:
+
+    if scene.backend == "jax":
+        time_arr = jnp.asarray(time, dtype=scene.dtype)
+        return _jitted_state_at(scene, time_arr)
+
+    return _state_at_impl(scene, time)
+    
 
 def _densify_batch(batch: MotionBatch, indices: ArrayLike, n: int, xp: Backend) -> MotionBatch:
     kwargs: dict[str, ArrayLike] = {}
@@ -138,14 +153,14 @@ def _densify_batch(batch: MotionBatch, indices: ArrayLike, n: int, xp: Backend) 
 
 
 def densify(scene: CompiledScene, *, xp: Backend = np) -> DenseCompiledScene:
-    dense_batches: dict[type[Motion], MotionBatch] = {}
-    masks: dict[type[Motion], ArrayLike] = {}
+    dense_batches: dict[str, MotionBatch] = {}
+    masks: dict[str, ArrayLike] = {}
     
-    for motion, batch in scene.motion_batches.items():
-        indices = scene.slots_by_motion[motion]
-        dense_batches[motion] = _densify_batch(batch, indices, scene.n, xp)
+    for motion_name, batch in scene.motion_batches.items():
+        indices = scene.slots_by_motion[motion_name]
+        dense_batches[motion_name] = _densify_batch(batch, indices, scene.n, xp)
         
-        mask = np.zeros((scene.n, 1), dtype=bool)
+        mask = xp.zeros((scene.n, 1), dtype=bool)
         if indices.size:
             mask = _scatter_rows(
                 mask,
@@ -153,7 +168,7 @@ def densify(scene: CompiledScene, *, xp: Backend = np) -> DenseCompiledScene:
                 xp.ones((indices.size, 1), dtype=bool),
                 xp=xp
             )
-        masks[motion] = mask
+        masks[motion_name] = mask
 
     return DenseCompiledScene(
         n=scene.n,
@@ -177,13 +192,13 @@ def state_at_dense(scene: DenseCompiledScene, time: ArrayLike, *, xp: Backend = 
      
  
 def check_causality(
-    batches: Mapping[type[Motion], MotionBatch],
+    batches: Mapping[str, MotionBatch],
     time: ArrayLike,
 ) -> None:
     """Validate reference-time constraints on the Python/NumPy side."""
     requested = np.asarray(time)
 
-    for motion, batch in batches.items():
+    for motion_name, batch in batches.items():
         raw_initial_times = getattr(batch, "initial_times", None)
         if raw_initial_times is None:
             continue
@@ -191,7 +206,7 @@ def check_causality(
         initial_times = np.asarray(raw_initial_times)
         if np.any(requested < initial_times):
             raise ValueError(
-                f"Cannot evaluate motion class {motion.__name__!r} before its "
+                f"Cannot evaluate motion class {motion_name!r} before its "
                 f"reference time (requested t={time!r})."
             )  
         
