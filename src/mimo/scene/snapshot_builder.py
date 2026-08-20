@@ -50,16 +50,10 @@ class SnapshotBuilder:
         self,
         scene: Scene,
         start_time: float = 0.0,
-        dtype: DTypeLike = np.float32,
-        xp: ModuleType = np,
-        causality: bool = True,
     ) -> None:
         self._scene = scene
         self._time = start_time
-        self._dtype = dtype
-        self._xp = xp
-        self._causality = causality
-        self._compiled = scene.compile(dtype=dtype)
+        self._compiled = scene.compile()
     
     @property
     def current_time(self) -> float:
@@ -72,7 +66,7 @@ class SnapshotBuilder:
 
     def _sync(self) -> None:
         if self._compiled.version != self._scene.topology_version:
-            self._compiled = self._scene.compile(dtype=self._dtype)
+            self._compiled = self._scene.compile()
     
     def advance(self, dt: float) -> SceneSnapshot:
         if dt < 0:
@@ -85,7 +79,7 @@ class SnapshotBuilder:
     
     def snapshot_at(self, time: float) -> SceneSnapshot:
         self._sync()
-        if self._xp is np and self._causality:
+        if self._compiled.backend == "numpy":
             check_causality(self._compiled.motion_batches, time)
         
         state = state_at(self._compiled, time)

@@ -9,11 +9,11 @@ import jax.numpy as jnp
 from numpy.typing import NDArray
 from dataclasses import dataclass, replace, fields
 
-from typing import TYPE_CHECKING, Callable, Mapping, Sequence, Any, cast, TypeAlias
+from typing import TYPE_CHECKING, Mapping, Sequence, Any, cast, TypeAlias
 from numpy.typing import DTypeLike, NDArray
 
+from .jax_backend import _maybe_register_pytree
 from .motion_model import (
-    Motion,
     MotionBatch,
     MotionBlock,
 )
@@ -21,7 +21,6 @@ from .motion_model import (
 if TYPE_CHECKING:
     from ..scene.scene import CompiledScene, RadarEngagements, CompiledChannels
     from ..scene.snapshot_builder import SceneSnapshot
-
 
 
 ArrayLike: TypeAlias = Any
@@ -46,6 +45,8 @@ class State:
     accelerations: NDArray[np.floating]
     orientations: NDArray[np.floating]
     angular_rates: NDArray[np.floating]
+    
+_maybe_register_pytree(State)
 
 
 @dataclass

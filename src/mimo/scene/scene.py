@@ -5,9 +5,11 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from collections import defaultdict
 import numpy as np
+import jax
 import jax.numpy as jnp
 
 from typing import TYPE_CHECKING, Dict, Mapping, Any, TypeAlias
+from types import ModuleType
 from numpy.typing import NDArray, DTypeLike
 
 from ..entity.radar_component import TransmitterElement, ReceiverElement, RadarNode, RadarComponent, TargetProperties
@@ -20,14 +22,32 @@ logger = logging.getLogger(__name__)
 
 Backend: TypeAlias = Any
 
+@dataclass(frozen=True, slots=True)
 class BackendContext:
-    def __init__(self, xp: Backend=np, dtype=np.float32):
-        self.xp = xp
-        self.dtype = np.dtype(dtype)
+    xp: ModuleType
+    dtype: np.dtype[Any]
+    name: str
 
-    def array(self, val):
-        return self.xp.asarray(val, dtype=self.dtype)
-
+    def array(self, value: Any) -> Any:
+        return self.xp.asarray(value, dtype=self.dtype)
+    
+    @classmethod
+    def numpy(cls, dtype: DTypeLike = np.float32) -> BackendContext:
+        return cls(
+            xp=np,
+            dtype=np.dtype(dtype),
+            name="numpy",
+        )
+    
+    @classmethod
+    def jax(cls, dtype: DTypeLike = np.float32) -> BackendContext:
+        import jax.numpy as jnp
+        
+        return cls(
+            xp=jnp,
+            dtype=jnp.dtype(dtype),
+            name="jax",
+        )
 
 @dataclass(frozen=True, slots=True)
 class CompiledScene:
@@ -49,15 +69,46 @@ class CompiledScene:
         return jnp if self.backend == "jax" else np
 
 
+_JAX_REGISTERED = False
+
+def _register_jax_pytree() -> None:
+    global _JAX_REGISTERED
+    
+    if _JAX_REGISTERED:
+        return
+    
+    import jax
+
+    jax.tree_util.register_dataclass(
+        CompiledScene,
+        data_fields=(
+            "is_static",
+            "is_active",
+            "slots_by_motion",
+            "motion_batches",
+        ),
+        meta_fields=(
+            "version",
+            "entity_ids",
+            "dtype",
+            "backend",            
+        ),
+    )
+    
+    _JAX_REGISTERED = True
+
+
 class Scene:
     
-    def __init__(self) -> None:
+    def __init__(self, *, backend: BackendContext = BackendContext.numpy()) -> None:
         self._entities: dict[int, Entity] = {}
         self._slots_by_id: Dict[str, int] = {}
         
         self._free_slots: list[int] = []
         self._next_slot = 0
         self._topology_version = 0
+        
+        self._backend = backend
     
     @property
     def topology_version(self) -> int:
@@ -121,12 +172,19 @@ class Scene:
 
     def iter_all(self) -> Iterator[Entity]:
         return iter(self._entities.values())
-    
-    def compile(self, dtype: DTypeLike = np.float32, xp: Backend = np) -> CompiledScene:
+            
+    def compile(self) -> CompiledScene:
         """Snapshot the current topology and per-entity motion parameters
         into an immutable `CompiledSimulation`.
 
         """
+        backend = self._backend
+        xp = backend.xp
+        dtype = backend.dtype
+        
+        if backend.name == "jax":
+            _register_jax_pytree()
+        
         n = self._next_slot
         entity_ids: list[str] = [""] * n
         is_static = np.zeros(n, dtype=np.bool_)
@@ -147,9 +205,6 @@ class Scene:
             motion_cls.__name__: build_batch(motion_cls, group, dtype, xp)
             for motion_cls, group in buckets.items()
         }
-        backend = "numpy"
-        if xp == jnp:
-            backend = "jax"
 
         return CompiledScene(
             version=self._topology_version,
@@ -159,7 +214,7 @@ class Scene:
             slots_by_motion=slots_by_motion,
             motion_batches=motion_batches,
             dtype=np.dtype(dtype),
-            backend=backend,
+            backend=backend.name,
         )
     
     

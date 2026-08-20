@@ -8,7 +8,7 @@ from typing import Sequence, cast, TypeAlias, Any, Union, TYPE_CHECKING, TypeVar
 from numpy.typing import NDArray, DTypeLike
 
 from .quat import quat_multiply, quat_normalise, axis_angle_delta_quat
-from .jax_backend import register_motion_batch, batch_class_for
+from .jax_backend import register_motion_batch, batch_class_for, _ensure_all_pytrees_registered
 
 Backend: TypeAlias = Any
 
@@ -129,6 +129,7 @@ class MotionBlock:
 def build_batch(motion_cls: type[Motion], entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> MotionBatch:
     return batch_class_for(motion_cls).from_entities(entities, dtype)
 
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MotionBatch(ABC):
     xp: Backend = np
@@ -151,7 +152,6 @@ class StaticBatch(MotionBatch):
     velocities: ArrayLike
     orientations: ArrayLike
     angular_rates: ArrayLike
-    
     
     @classmethod
     def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> StaticBatch:
@@ -184,9 +184,6 @@ class ConstantVelocityBatch(MotionBatch):
     initial_orientations: ArrayLike
     angular_rates: ArrayLike
     initial_times: ArrayLike
-    
-    xp: Backend = np
-    dtype: DTypeLike = np.float32
     
     @classmethod
     def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> ConstantVelocityBatch:
@@ -227,10 +224,7 @@ class ConstantAccelerationBatch(MotionBatch):
     initial_orientations: ArrayLike
     angular_rates: ArrayLike
     initial_times: ArrayLike
-    
-    xp: Backend = np
-    dtype: DTypeLike = np
-    
+        
     @classmethod
     def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> MotionBatch:
         motions = [cast(ConstantAccelerationMotion, e.motion) for e in entities]
@@ -262,3 +256,5 @@ class ConstantAccelerationBatch(MotionBatch):
             angular_rates=self.angular_rates,            
         )
         
+
+_ensure_all_pytrees_registered()
