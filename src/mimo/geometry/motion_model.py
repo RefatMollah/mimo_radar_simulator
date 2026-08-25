@@ -255,6 +255,5 @@ class ConstantAccelerationBatch(MotionBatch):
             orientations=orientations,
             angular_rates=self.angular_rates,            
         )
-        
-
+    
 _ensure_all_pytrees_registered()

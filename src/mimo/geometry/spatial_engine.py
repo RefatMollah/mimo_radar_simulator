@@ -35,17 +35,18 @@ _FIELD_WIDTHS: tuple[tuple[str, int], ...] = (
     ("angular_rates", 3),
 )
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class State:
     """Full-scene numeric result."""
 
     time: float | None
-    positions: NDArray[np.floating]
-    velocities: NDArray[np.floating]
-    accelerations: NDArray[np.floating]
-    orientations: NDArray[np.floating]
-    angular_rates: NDArray[np.floating]
+    positions: ArrayLike
+    velocities: ArrayLike
+    accelerations: ArrayLike
+    orientations: ArrayLike
+    angular_rates: ArrayLike
     
+        
 _maybe_register_pytree(State)
 
 
@@ -220,24 +221,24 @@ class BistaticGeometry:
     Container for coputed bistatic radar geometry.
     Coordinate frame: east-north-up (ENU)
     """
-    tx_los:         NDArray[np.float32]
-    rx_los:         NDArray[np.float32]
+    tx_los:         ArrayLike
+    rx_los:         ArrayLike
     
-    tx_range:       NDArray[np.float32]
-    rx_range:       NDArray[np.float32]
+    tx_range:       ArrayLike
+    rx_range:       ArrayLike
     
-    bistatic_range_rate: NDArray[np.float32]
+    bistatic_range_rate: ArrayLike
     
-    tx_azimuth:     NDArray[np.float32]
-    tx_elevation:   NDArray[np.float32]
-    rx_azimuth:     NDArray[np.float32]
-    rx_elevation:   NDArray[np.float32]
+    tx_azimuth:     ArrayLike
+    tx_elevation:   ArrayLike
+    rx_azimuth:     ArrayLike
+    rx_elevation:   ArrayLike
 
 @dataclass(frozen=True, slots=True)
 class SensorWorldPoses:
     """One row per link (mirrors SensorOffsets)"""
-    positions:    NDArray[np.float32]
-    orientations: NDArray[np.float32]
+    positions:    ArrayLike
+    orientations: ArrayLike
     
 
 def bistatic_geometry(sc: SceneSnapshot, engagements: RadarEngagements):
@@ -297,6 +298,7 @@ def bistatic_geometry(sc: SceneSnapshot, engagements: RadarEngagements):
         rx_elevation=rx_elevation
     )
 
+#FIXME: fix backend inconsistencies
 def compile_sensor_world_poses(sc: SceneSnapshot, channel: CompiledChannels) -> SensorWorldPoses:
     """Apply each link's mounting offset to its parent entity's current pose."""    
     link_slots = channel.link_slots
@@ -311,7 +313,7 @@ def compile_sensor_world_poses(sc: SceneSnapshot, channel: CompiledChannels) -> 
     
     return SensorWorldPoses(sensor_pos, sensor_ori)
     
-def rotate_into_sensor_frame(orientations: NDArray[np.float32], vectors: NDArray[np.float32]) -> NDArray[np.float32]:
+def rotate_into_sensor_frame(orientations: ArrayLike, vectors: ArrayLike) -> ArrayLike:
     """
     Rotate a batch of vectors with a batch of quaternions.
     Convention: [w, x, y, z]
@@ -329,19 +331,19 @@ def rotate_into_sensor_frame(orientations: NDArray[np.float32], vectors: NDArray
     
     return rotated[..., 1:]
 
-def rotate_sensor_to_world(orientations: NDArray[np.float32], vectors: NDArray[np.float32]) -> NDArray[np.float32]:
+def rotate_sensor_to_world(orientations: ArrayLike, vectors: ArrayLike,*, dtype: DTypeLike=np.float32) -> ArrayLike:
     q = _normalise(orientations)
     q_conj = q * QUATERNION_CONJUGATE 
     
     zeros = np.zeros((*vectors.shape[:-1], 1))
-    v_quat = np.concatenate((zeros, vectors), axis=1, dtype=np.float32)
+    v_quat = np.concatenate((zeros, vectors), axis=1, dtype=dtype)
     
     
     rotated = _quat_multiply(q, _quat_multiply(v_quat, q_conj))
     
     return rotated[..., 1:]
 
-def _quat_multiply(q1: NDArray[np.float32], q2: NDArray[np.float32]) -> NDArray[np.float32]:
+def _quat_multiply(q1: ArrayLike, q2: ArrayLike) -> ArrayLike:
     """Hamilton porduct of two arrays of quaternions."""
     w1, x1, y1, z1 = np.split(q1, 4, axis=-1)
     w2, x2, y2, z2 = np.split(q2, 4, axis=-1)
@@ -353,7 +355,7 @@ def _quat_multiply(q1: NDArray[np.float32], q2: NDArray[np.float32]) -> NDArray[
         w2*z1 - x2*y1 + y2*x1 + z2*w1
     ), axis=-1, dtype=np.float32)
     
-def _normalise(v: NDArray[np.float32]) -> NDArray[np.float32]:
+def _normalise(v: ArrayLike) -> ArrayLike:
     mag = np.linalg.norm(v, axis=-1, keepdims=True)
     return np.divide(v, mag, out=np.zeros_like(v), where= mag>0)
     

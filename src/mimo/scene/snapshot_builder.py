@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray, DTypeLike
-from types import ModuleType
 
 from dataclasses import dataclass
 import logging
 
 from ..geometry.spatial_engine import State, check_causality, state_at
 from .scene import Scene, CompiledScene
-from src.mimo.entity.entity import Entity
+
 
 logger = logging.getLogger(__name__)
   
@@ -19,6 +18,7 @@ class SceneSnapshot:
     entity_ids: tuple[str, ...]
     is_static: NDArray[np.bool_]
     is_active: NDArray[np.bool_]
+    xp: str
     
     @property
     def time(self) -> float | None:
@@ -89,4 +89,5 @@ class SnapshotBuilder:
             entity_ids=self._compiled.entity_ids,
             is_static=self._compiled.is_static,
             is_active=self._compiled.is_active,
+            xp=self._compiled.backend
         )

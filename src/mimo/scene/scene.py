@@ -187,8 +187,8 @@ class Scene:
         
         n = self._next_slot
         entity_ids: list[str] = [""] * n
-        is_static = np.zeros(n, dtype=np.bool_)
-        is_active = np.zeros(n, dtype=np.bool_)
+        is_static = xp.zeros(n, dtype=np.bool_)
+        is_active = xp.zeros(n, dtype=np.bool_)
         buckets: dict[type[Motion], list[Entity]] = defaultdict(list)
 
         for slot, entity in self._entities.items():
@@ -233,7 +233,6 @@ class ChannelLink:
     rx: ReceiverElement
     active: bool
 
-
 @dataclass(slots=True, frozen=True)
 class EngagementIndices:
     """
@@ -248,18 +247,7 @@ class EngagementIndices:
     tx_slots:     NDArray[np.int_]
     target_slots: NDArray[np.int_]
     rx_slots:     NDArray[np.int_]
-    link_idx:     NDArray[np.int_]
-    
-    def to_backend(self, xp: Backend = np) -> EngagementIndices:
-        if xp is np:
-            return self
-        return EngagementIndices(
-            tx_slots=xp.asarray(self.tx_slots),
-            target_slots=xp.asarray(self.target_slots),
-            rx_slots=xp.asarray(self.rx_slots),
-            link_idx=xp.asarray(self.link_idx),            
-        )
-    
+
 
 @dataclass(frozen=True, slots=True)
 class SensorOffsets:
@@ -394,7 +382,7 @@ class RadarNetwork:
         excluding every pair where the target is one of the illuminators.
         """
         if link_slots.size == 0 or target_slots.size == 0:
-            return EngagementIndices(_EMPTY_INT, _EMPTY_INT, _EMPTY_INT, _EMPTY_INT)
+            return EngagementIndices(_EMPTY_INT, _EMPTY_INT, _EMPTY_INT)
 
         n_targets = len(target_slots)
         n_links = len(link_slots)
@@ -415,7 +403,6 @@ class RadarNetwork:
             tx_slots[valid],
             targets_per_engagement[valid],
             rx_slots[valid],
-            link_idx_per_engagement[valid],
         )
         
         

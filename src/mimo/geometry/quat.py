@@ -22,6 +22,10 @@ Quaternion convention:
 represents body->world convention.
 """
 
+def identity_quats(n: int, xp: Backend, dtype: DTypeLike) -> NDArray:
+    base = xp.array([1.0, 0.0, 0.0, 0.0], dtype=dtype)
+    return xp.broadcast_to(base, (n, 4))
+
 def quat_multiply(q1: ArrayLike, 
                   q2: ArrayLike,
                   *,
@@ -64,5 +68,27 @@ def axis_angle_delta_quat(omega: ArrayLike,
     dq_identity = xp.tile(xp.astype(xp.array([1.0, 0.0, 0.0, 0.0]), dtype), (omega.shape[0], 1))
     
     mask = (omega_norm > 1e-12)
-    return xp.where(mask, dq, dq_identity)    
+    return xp.where(mask, dq, dq_identity)
+
+def quat_rotate(
+    q: ArrayLike,
+    v: ArrayLike,
+    *,
+    xp: Backend = np,
+    dtype: DTypeLike = np.float32,
+) -> ArrayLike:
+    """Rotate 3D vector(s) `v` by unit quaternion(s) `q` using Rodrigues-like vector formula:
+    
+    v' = v + 2 * r x (r x v + w * v), where q = (w, r).
+    """
+    w, x, y, z = xp.split(q, 4, axis=-1)
+    r = xp.concatenate((x, y, z), axis=-1, dtype=dtype)
+    
+    # Compute cross product r x v
+    rxv = xp.cross(r, v, axis=-1)
+    
+    # Compute cross product r x (r x v + w * v)
+    t = 2.0 * xp.cross(r, rxv + w * v, axis=-1)
+    
+    return xp.astype(v + t, dtype=dtype)    
     
