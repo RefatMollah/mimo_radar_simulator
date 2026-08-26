@@ -2,14 +2,14 @@ import numpy as np
 import pytest
 from unittest.mock import Mock, MagicMock
 
-from src.mimo.geometry.motion_model import (
+from mimo.geometry.motion_model import (
     Motion,
     StaticMotion,
     ConstantVelocityMotion,
     ConstantAccelerationMotion,
 )
-from src.mimo.entity.entity import Entity
-from src.mimo.scene.scene import Scene, DuplicateEntityError, EntityNotFoundError
+from mimo.entity.entity import Entity
+from mimo.scene.scene import Scene, DuplicateEntityError, EntityNotFoundError
 
 #####################################################################################
 # Fixtures
@@ -19,9 +19,7 @@ from src.mimo.scene.scene import Scene, DuplicateEntityError, EntityNotFoundErro
 def static_motion():
     return StaticMotion(
         position=np.zeros(3),
-        velocity=np.zeros(3),
         orientation=np.array([1, 0, 0, 0]),
-        angular_velocity=np.zeros(3),
     )
     
 def constant_velocity_motion():
@@ -61,7 +59,7 @@ def test_add_and_get_static_entity(create_entity):
     assert sc.get_entity(e1.id) == e1
 
 def test_add_and_get_dynamic_entity(create_entity):
-    e1 = create_entity(constant_velocity_motion)
+    e1 = create_entity(constant_velocity_motion())
     sc = Scene()
     sc.add_entity(e1)
     

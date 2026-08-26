@@ -1,14 +1,13 @@
 import pytest
 from unittest.mock import Mock, MagicMock
 
-from src.mimo.entity.radar_component import RadarComponent
-from src.mimo.geometry.motion_model import Motion
-from src.mimo.entity.entity import (
+from mimo.entity.radar_component import RadarComponent
+from mimo.geometry.motion_model import Motion
+from mimo.entity.entity import (
     Entity, 
     ComponentNotFoundError, 
     ComponentAlreadyAttachedError
 )
-
 
 class MockComponent(RadarComponent):
     pass

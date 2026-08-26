@@ -90,17 +90,24 @@ def _assemble_sparse(
     blocks: Sequence[tuple[ArrayLike, MotionBlock]],
     xp: Backend
 ) -> State:
-    """Evaluate compact batches, then scatter each field into scene slots."""
+    """Evaluate compact batches, then scatter each field into scene slots.
+
+    Scatter values per-block rather than concatenating indices and values
+    globally. This avoids shape-mismatch errors when individual blocks may
+    carry extra dimensions or otherwise don't align for a single global
+    concatenation step.
+    """
     out = _empty_state_arrays(n, dtype, xp)
     if not blocks:
         return State(time=None, **out)
-    
-    indices = xp.concatenate([idx for idx, _ in blocks])
-    
-    for name, _ in _FIELD_WIDTHS:
-        values = xp.concatenate([getattr(block, name) for _, block in blocks])
-        out[name] = _scatter_rows(out[name], indices, values, xp=xp)
-    
+
+    # Scatter each block's fields into the output arrays using that block's
+    # own index array. This ensures per-block row counts are respected.
+    for idx, block in blocks:
+        for name, _ in _FIELD_WIDTHS:
+            values = getattr(block, name)
+            out[name] = _scatter_rows(out[name], idx, values, xp=xp)
+
     return State(time=None, **out)
 
 
@@ -322,40 +329,38 @@ def rotate_into_sensor_frame(orientations: ArrayLike, vectors: ArrayLike) -> Arr
     """
     q = _normalise(orientations)
     q_conj = q * QUATERNION_CONJUGATE
-    
-    zeros = np.zeros((*vectors.shape[:-1], 1))
-    v_quat = np.concatenate((zeros, vectors), axis=-1, dtype=np.float32)
-    
+
+    zeros = np.zeros((*vectors.shape[:-1], 1), dtype=np.asarray(vectors).dtype)
+    v_quat = np.concatenate((zeros, vectors), axis=-1).astype(np.asarray(q).dtype, copy=False)
+
     # Passive rotation: q'vq
-    rotated = _quat_multiply(q_conj, _quat_multiply(v_quat, q)) 
-    
+    rotated = _quat_multiply(q_conj, _quat_multiply(v_quat, q))
+
     return rotated[..., 1:]
 
 def rotate_sensor_to_world(orientations: ArrayLike, vectors: ArrayLike,*, dtype: DTypeLike=np.float32) -> ArrayLike:
     q = _normalise(orientations)
-    q_conj = q * QUATERNION_CONJUGATE 
-    
-    zeros = np.zeros((*vectors.shape[:-1], 1))
-    v_quat = np.concatenate((zeros, vectors), axis=1, dtype=dtype)
-    
-    
+    q_conj = q * QUATERNION_CONJUGATE
+
+    zeros = np.zeros((*vectors.shape[:-1], 1), dtype=np.asarray(vectors).dtype)
+    v_quat = np.concatenate((zeros, vectors), axis=-1).astype(np.asarray(q).dtype, copy=False)
+
     rotated = _quat_multiply(q, _quat_multiply(v_quat, q_conj))
-    
+
     return rotated[..., 1:]
 
 def _quat_multiply(q1: ArrayLike, q2: ArrayLike) -> ArrayLike:
-    """Hamilton porduct of two arrays of quaternions."""
+    """Hamilton product of two arrays of quaternions."""
     w1, x1, y1, z1 = np.split(q1, 4, axis=-1)
     w2, x2, y2, z2 = np.split(q2, 4, axis=-1)
-    
-    return np.concatenate((
+
+    result = np.concatenate((
         w2*w1 - x2*x1 - y2*y1 - z2*z1,
         w2*x1 + x2*w1 - y2*z1 + z2*y1,
         w2*y1 + x2*z1 + y2*w1 - z2*x1,
-        w2*z1 - x2*y1 + y2*x1 + z2*w1
-    ), axis=-1, dtype=np.float32)
-    
+        w2*z1 - x2*y1 + y2*x1 + z2*w1,
+    ), axis=-1)
+    return np.asarray(result, dtype=np.float32)
 def _normalise(v: ArrayLike) -> ArrayLike:
     mag = np.linalg.norm(v, axis=-1, keepdims=True)
     return np.divide(v, mag, out=np.zeros_like(v), where= mag>0)
-    

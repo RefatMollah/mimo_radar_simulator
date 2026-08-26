@@ -27,6 +27,10 @@ class BackendContext:
     xp: ModuleType
     dtype: np.dtype[Any]
     name: str
+    
+    @property
+    def is_jax(self) -> bool:
+        return self.name == "jax"
 
     def array(self, value: Any) -> Any:
         return self.xp.asarray(value, dtype=self.dtype)
@@ -187,14 +191,18 @@ class Scene:
         
         n = self._next_slot
         entity_ids: list[str] = [""] * n
-        is_static = xp.zeros(n, dtype=np.bool_)
-        is_active = xp.zeros(n, dtype=np.bool_)
+        is_static = xp.zeros(n, dtype=bool)
+        is_active = xp.zeros(n, dtype=bool)
         buckets: dict[type[Motion], list[Entity]] = defaultdict(list)
 
         for slot, entity in self._entities.items():
             entity_ids[slot] = entity.id
-            is_static[slot] = entity.is_static
-            is_active[slot] = True
+            if backend.is_jax:
+                is_static = is_static.at[slot].set(entity.is_static)
+                is_active = is_active.at[slot].set(True)
+            else:
+                is_static[slot] = entity.is_static
+                is_active[slot] = True
             buckets[type(entity.motion)].append(entity)
 
         slots_by_motion: dict[str, NDArray[np.intp]] = {

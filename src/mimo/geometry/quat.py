@@ -41,7 +41,7 @@ def quat_multiply(q1: ArrayLike,
         w2*x1 + x2*w1 - y2*z1 + z2*y1,
         w2*y1 + x2*z1 + y2*w1 - z2*x1,
         w2*z1 - x2*y1 + y2*x1 + z2*w1
-    ), axis=-1, dtype=np.float32)
+    ), axis=-1, dtype=dtype)
     
 def quat_normalise(v: ArrayLike, *,xp: Backend = np) -> ArrayLike:
     mag = xp.linalg.norm(v, axis=-1, keepdims=True)
