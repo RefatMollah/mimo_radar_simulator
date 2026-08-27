@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Dict, Mapping, Any, TypeAlias
 from types import ModuleType
 from numpy.typing import NDArray, DTypeLike
 
-from ..entity.radar_component import TransmitterElement, ReceiverElement, RadarNode, RadarComponent, TargetProperties
 from ..geometry.motion_model import build_batch, Motion, MotionBatch
 
 if TYPE_CHECKING:
@@ -31,6 +30,10 @@ class BackendContext:
     @property
     def is_jax(self) -> bool:
         return self.name == "jax"
+
+    @property
+    def module(self) -> ModuleType:
+        return self.xp
 
     def array(self, value: Any) -> Any:
         return self.xp.asarray(value, dtype=self.dtype)
@@ -72,7 +75,6 @@ class CompiledScene:
     def xp(self):
         return jnp if self.backend == "jax" else np
 
-
 _JAX_REGISTERED = False
 
 def _register_jax_pytree() -> None:
@@ -105,7 +107,7 @@ def _register_jax_pytree() -> None:
 class Scene:
     
     def __init__(self, *, backend: BackendContext = BackendContext.numpy()) -> None:
-        self._entities: dict[int, Entity] = {}
+        self._entities: Dict[int, Entity] = {}
         self._slots_by_id: Dict[str, int] = {}
         
         self._free_slots: list[int] = []
@@ -139,7 +141,7 @@ class Scene:
             slot = self._next_slot
             self._next_slot += 1
 
-        entity.set_slot(slot)
+        entity._assign_scene_index(slot)
         self._entities[slot] = entity
         self._slots_by_id[entity_id] = slot
         self._bump_topology()
@@ -151,7 +153,7 @@ class Scene:
             raise EntityNotFoundError(entity_id)
 
         entity = self._entities.pop(slot)
-        entity._slot = -1
+        entity._assign_scene_index(-1)
         self._free_slots.append(slot)
         self._bump_topology()
         
@@ -166,7 +168,7 @@ class Scene:
         
     @staticmethod
     def _set_entity_slot(entity: Entity, slot: int) -> None:
-        entity.set_slot(slot)
+        entity._assign_scene_index(slot)
     
     def iter_static(self) -> Iterator[Entity]:
         return (e for e in self._entities.values() if e.is_static)
@@ -206,7 +208,7 @@ class Scene:
             buckets[type(entity.motion)].append(entity)
 
         slots_by_motion: dict[str, NDArray[np.intp]] = {
-            motion_cls.__name__: np.array([e.slot for e in group], dtype=np.intp)
+            motion_cls.__name__: np.array([e.scene_index for e in group], dtype=np.intp)
             for motion_cls, group in buckets.items()
         }
         motion_batches: dict[str, MotionBatch] = {
@@ -230,204 +232,6 @@ class Scene:
         return (
             f"Scene(Entities={len(self._entities)} "
         )  
-
-
-_EMPTY_INT = np.empty(0, dtype=np.int_)
-
-@dataclass
-class ChannelLink:
-    """A transmit/receive pair that can be toggled on or off."""
-    tx: TransmitterElement
-    rx: ReceiverElement
-    active: bool
-
-@dataclass(slots=True, frozen=True)
-class EngagementIndices:
-    """
-    Every valid (transmitter, target, receiver) triple in the network.
-
-    A triple exists for each active ChannelLink x each scene target, minus
-    any triple where the target is one of the two radars in the link (a
-    radar can't illuminate or receive reflections from itself).
-
-    All three arrays are the same length; row i is one engagement.
-    """
-    tx_slots:     NDArray[np.int_]
-    target_slots: NDArray[np.int_]
-    rx_slots:     NDArray[np.int_]
-
-
-@dataclass(frozen=True, slots=True)
-class SensorOffsets:
-    """
-    Per-link mounting offsets, row-aligned with CompiledChannels.link_slots such that
-    positions[link_slot] += pos_offsets
-    """
-    pos_offsets: NDArray[np.float32]   # (n_links, 2, 3) -> [:, 0]=tx, [:, 1]=rx
-    rot_offsets: NDArray[np.float32]   # (n_links, 2, 4) -> [:, 0]=tx, [:, 1]=rx
-
-
-@dataclass
-class CompiledChannels:
-    """Active channel links with sensor offsets flattened into aligned NumPy arrays."""
-    link_slots:     NDArray[np.int_]   # [tx_slot, rx_slot]
-    sensor_offsets: SensorOffsets
-    
-
-@dataclass
-class RadarEngagements:
-    """Radar Engagement Indices with with channel sensor offsets."""
-    channel: CompiledChannels
-    indices: EngagementIndices
-
-
-@dataclass
-class _EngagementsCache:
-    scene_version:     int
-    network_version:   int
-    compiled_channels: CompiledChannels
-    engagements:       EngagementIndices
-
-    
-class RadarNetwork:
-    """
-    Owns the set of tx/rx ChannelLinks in a scene and derives, from them,
-    every valid (tx, target, rx) engagement. Results are cached and only
-    recomputed when the scene topology or the link set changes.
-    """
-
-    def __init__(self, scene: Scene) -> None:
-        self._scene = scene
-        self._links: list[ChannelLink] = []
-
-        self._network_version = 0
-        self._cache: _EngagementsCache | None = None
-
-    @property
-    def links(self) -> list[ChannelLink]:
-        return self._links
-
-    def add_link(self, link: ChannelLink) -> None:
-        self._links.append(link)
-        self._network_version += 1
-
-    def remove_link(self, link: ChannelLink) -> None:
-        self._links.remove(link)
-        self._network_version += 1
-
-    def set_link_active(self, link: ChannelLink, active: bool) -> None:
-        if link.active != active:
-            link.active = active
-            self._network_version += 1
-
-    def get_engagements(self, *, xp: Backend = np) -> RadarEngagements:
-        """Return the cached engagements, recomputing if the scene or link set changed."""
-        scene_version = self._scene.topology_version
-        network_version = self._network_version
-
-        cache_is_stale = (
-            self._cache is None
-            or self._cache.scene_version != scene_version
-            or self._cache.network_version != network_version
-        )
-
-        if cache_is_stale:
-            compiled = self.compile_channel_links()
-            target_slots = self._collect_target_slots()
-            engagements = self._cross_join_links_and_targets(compiled.link_slots, target_slots)
-
-            self._cache = _EngagementsCache(
-                scene_version=scene_version,
-                network_version=network_version,
-                compiled_channels=compiled,
-                engagements=engagements,
-            )
-        assert self._cache is not None
-                
-        return RadarEngagements(
-            channel=self._cache.compiled_channels,
-            indices=self._cache.engagements,
-        )
-        
-    def compile_channel_links(self) -> CompiledChannels:
-        """Flatten the active links into aligned arrays for vectorized math."""
-        active_links = [link for link in self._links if link.active]
-
-        link_slots = np.asarray(
-            [(link.tx.slot, link.rx.slot) for link in active_links],
-            dtype=np.int_,
-        )
-        pos_offsets = np.asarray(
-            [(link.tx.pos_offset, link.rx.pos_offset) for link in active_links],
-            dtype=np.float32
-        )
-        rot_offsets = np.asarray(
-            [(link.tx.rot_offset, link.rx.rot_offset) for link in active_links],
-            dtype=np.float32
-        )
-
-        return CompiledChannels(
-            link_slots=link_slots,
-            sensor_offsets=SensorOffsets(pos_offsets, rot_offsets),
-        )        
-        
-    def _collect_target_slots(self) -> NDArray[np.int_]:
-        """Slot numbers of every entity in the scene that carries TargetProperties."""
-        return np.fromiter(
-            (
-                entity.slot
-                for entity in self._scene.iter_all()
-                if hasattr(entity, 'has_component') and entity.has_component(TargetProperties)
-            ),
-            dtype=np.int_,
-        )
-
-    @staticmethod
-    def _cross_join_links_and_targets(link_slots: NDArray[np.int_], target_slots: NDArray[np.int_],
-    ) -> EngagementIndices:
-        """
-        Pair every active (tx, rx) link with every target,
-        excluding every pair where the target is one of the illuminators.
-        """
-        if link_slots.size == 0 or target_slots.size == 0:
-            return EngagementIndices(_EMPTY_INT, _EMPTY_INT, _EMPTY_INT)
-
-        n_targets = len(target_slots)
-        n_links = len(link_slots)
-
-        # Row i of each array below is one (link, target) combination:
-        # repeat each link once per target, tile targets once per link.
-        links_per_engagement = np.repeat(link_slots, n_targets, axis=0)
-        targets_per_engagement = np.tile(target_slots, n_links)
-        link_idx_per_engagement = np.repeat(np.arange(n_links), n_targets)
-
-        tx_slots = links_per_engagement[:, 0]
-        rx_slots = links_per_engagement[:, 1]
-
-        is_self_engagement = (tx_slots == targets_per_engagement) | (rx_slots == targets_per_engagement)
-        valid = ~is_self_engagement
-
-        return EngagementIndices(
-            tx_slots[valid],
-            targets_per_engagement[valid],
-            rx_slots[valid],
-        )
-        
-        
-#-----------------------------------------------------------
-# Radar Network JAX Backend
-#-----------------------------------------------------------
-
-def _channels_to_backend(channels: CompiledChannels, xp: Backend = np) -> CompiledChannels:
-    if xp is np:
-        return channels
-    return CompiledChannels(
-        link_slots=xp.asarray(channels.link_slots),
-        sensor_offsets=SensorOffsets(
-            xp.asarray(channels.sensor_offsets.pos_offsets),
-            xp.asarray(channels.sensor_offsets.rot_offsets),            
-        ),
-    )
 
 
 #-----------------------------------------------------------

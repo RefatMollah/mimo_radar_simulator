@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, MagicMock
 
-from mimo.entity.radar_component import RadarComponent
+from mimo.entity.radar_component import Component
 from mimo.geometry.motion_model import Motion
 from mimo.entity.entity import (
     Entity, 
@@ -9,7 +9,7 @@ from mimo.entity.entity import (
     ComponentAlreadyAttachedError
 )
 
-class MockComponent(RadarComponent):
+class MockComponent(Component):
     pass
 
 @pytest.fixture
@@ -82,12 +82,12 @@ def test_component_back_reference_cleared_on_removal(entity_fixture):
     component = MockComponent()
     
     entity_fixture.add_component(component)
-    assert component.attached is True
+    assert component.is_attached is True
     assert component.entity is entity_fixture
     
     entity_fixture.remove_component(MockComponent)
     assert component._entity is None
-    assert component.attached is False
+    assert component.is_attached is False
 
     with pytest.raises(RuntimeError):
         _ = component.entity
