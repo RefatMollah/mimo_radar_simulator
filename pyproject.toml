@@ -1,3 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mimo-radar"
+version = "0.1.0a1"
+description = "Experimental MIMO radar scene and geometry simulator."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = { file = "LICENSE" }
+authors = [{ name = "mimo-radar contributors" }]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = [
+  "array-api-compat>=1.8",
+  "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+jax = ["jax>=0.4.32"]
+dev = [
+  "build>=1.2",
+  "pyright>=1.1.390",
+  "pytest>=8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/RefatMollah/mimo_radar_simulator"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mimo"]
+
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+reportMissingImports = "warning"
+reportMissingTypeStubs = "none"

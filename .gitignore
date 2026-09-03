@@ -1,2 +1,11 @@
 .vscode/
+.venv/
+.env
 __pycache__
+.pytest_cache/
+.pyright/
+.mypy_cache/
+build/
+dist/
+*.egg-info/
+AGENTS.md

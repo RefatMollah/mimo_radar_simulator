@@ -4,14 +4,13 @@ import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 from collections import defaultdict
-import numpy as np
-import jax
-import jax.numpy as jnp
-
-from typing import TYPE_CHECKING, Dict, Mapping, Any, TypeAlias
 from types import ModuleType
-from numpy.typing import NDArray, DTypeLike
+import numpy as np
 
+from typing import TYPE_CHECKING, Dict, Mapping
+from numpy.typing import NDArray
+
+from .._array import Array, ArrayInput, BackendName, DTypeLike
 from ..geometry.motion_model import build_batch, Motion, MotionBatch
 
 if TYPE_CHECKING:
@@ -19,13 +18,12 @@ if TYPE_CHECKING:
     
 logger = logging.getLogger(__name__)
 
-Backend: TypeAlias = Any
-
 @dataclass(frozen=True, slots=True)
 class BackendContext:
-    xp: ModuleType
-    dtype: np.dtype[Any]
-    name: str
+    """Explicit backend selection for scene compilation and JAX execution."""
+
+    name: BackendName
+    dtype: DTypeLike = np.float32
     
     @property
     def is_jax(self) -> bool:
@@ -35,25 +33,34 @@ class BackendContext:
     def module(self) -> ModuleType:
         return self.xp
 
-    def array(self, value: Any) -> Any:
+    @property
+    def xp(self) -> ModuleType:
+        if self.name == "numpy":
+            return np
+        try:
+            import jax.numpy as jnp
+        except ImportError as error:
+            raise ImportError(
+                "The JAX backend requires the optional dependency. "
+                "Install it with 'pip install mimo-radar[jax]'."
+            ) from error
+        return jnp
+
+    def array(self, value: ArrayInput) -> Array:
         return self.xp.asarray(value, dtype=self.dtype)
     
     @classmethod
     def numpy(cls, dtype: DTypeLike = np.float32) -> BackendContext:
         return cls(
-            xp=np,
-            dtype=np.dtype(dtype),
             name="numpy",
+            dtype=dtype,
         )
     
     @classmethod
     def jax(cls, dtype: DTypeLike = np.float32) -> BackendContext:
-        import jax.numpy as jnp
-        
         return cls(
-            xp=jnp,
-            dtype=jnp.dtype(dtype),
             name="jax",
+            dtype=dtype,
         )
 
 @dataclass(frozen=True, slots=True)
@@ -64,16 +71,16 @@ class CompiledScene:
     is_active: NDArray[np.bool_]
     slots_by_motion: Mapping[str, NDArray[np.intp]]
     motion_batches: Mapping[str, MotionBatch]
-    dtype: np.dtype[Any]
-    backend: str # "numpy" or "jax"
+    dtype: DTypeLike
+    backend: BackendName
     
     @property
     def n(self) -> int:
         return len(self.entity_ids)
     
     @property
-    def xp(self):
-        return jnp if self.backend == "jax" else np
+    def xp(self) -> ModuleType:
+        return BackendContext(self.backend, self.dtype).xp
 
 _JAX_REGISTERED = False
 
@@ -223,7 +230,7 @@ class Scene:
             is_active=is_active,
             slots_by_motion=slots_by_motion,
             motion_batches=motion_batches,
-            dtype=np.dtype(dtype),
+            dtype=dtype,
             backend=backend.name,
         )
     
@@ -258,4 +265,4 @@ class InvalidTopologyError(Exception):
     """Raised when an invalid topology is entered."""
     
     def __init__(self, message: str):
-        super().__init__(message) 
+        super().__init__(message)

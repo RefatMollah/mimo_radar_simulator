@@ -1,7 +1,12 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, Iterable, TypeAlias
-from numpy.typing import NDArray
 import numpy as np
+
+from ..geometry.sensor_steering import FixedBoresight, ScanningPattern, SteeringActuator
+from .exceptions import (
+    ComponentAlreadyAttachedError,
+    ComponentError,
+)
 
 if TYPE_CHECKING:
     from .entity import Entity
@@ -26,7 +31,9 @@ class Component:
     @property
     def entity(self) -> Entity:
         if self._entity is None:
-            raise RuntimeError(f"{type(self).__name__} is not attached to an Entity.")
+            raise ComponentError(
+                f"{type(self).__name__} is not attached to an Entity."
+            )
         return self._entity
 
     @property
@@ -39,7 +46,7 @@ class Component:
 
     def _attach(self, entity: Entity) -> None:
         if self._entity is not None:
-            raise RuntimeError(
+            raise ComponentAlreadyAttachedError(
                 f"{type(self).__name__} is already attached to {self._entity.id}."
             )
         self._entity = entity
@@ -63,7 +70,7 @@ class RadarTarget(Component):
     """
     Marks an entity as radar-visible/scatterable.
 
-    Initially this can just hold scalar RCS. Later it should probably hold
+    Initially this just holds scalars RCS. Later it should probably hold
     an RcsModel or ScatteringModel supporting aspect/frequency dependence,
     Swerling fluctuation, micro-Doppler, scattering centers, etc.
     """
@@ -78,15 +85,14 @@ class RadarTarget(Component):
 class RadarSensor(Component):
     """
     Radar payload attached to an entity.
-
-    Replaces RadarNode. A RadarSensor contains transmitter and receiver
-    elements and has its own local transform relative to the entity body frame.
+    A RadarSensor is an RF front-end container. Its pose comes from the owning
+    entity and its RF elements carry any element-level offsets. Steering is a
+    separate scanning law or actuator.
     """
 
     __slots__ = (
         "name",
-        "local_position",
-        "local_rotation",
+        "steering",
         "_tx",
         "_rx",
     )
@@ -95,32 +101,14 @@ class RadarSensor(Component):
         self,
         name: str = "",
         *,
-        local_position: ArrayLike | None = None,
-        local_rotation: ArrayLike | None = None,
+        steering: ScanningPattern | SteeringActuator | None = None,
         transmitters: Iterable[TxElement] | None = None,
         receivers: Iterable[RxElement] | None = None,
     ) -> None:
         super().__init__()
 
         self.name = name
-
-        self.local_position = (
-            np.zeros(3, dtype=np.float64)
-            if local_position is None
-            else np.asarray(local_position, dtype=np.float64)
-        )
-
-        self.local_rotation = (
-            np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
-            if local_rotation is None
-            else np.asarray(local_rotation, dtype=np.float64)
-        )
-
-        if self.local_position.shape != (3,):
-            raise ValueError("local_position must have shape (3,).")
-
-        if self.local_rotation.shape != (4,):
-            raise ValueError("local_rotation must have shape (4,).")
+        self.steering = FixedBoresight() if steering is None else steering
 
         self._tx: list[TxElement] = []
         self._rx: list[RxElement] = []
@@ -159,7 +147,7 @@ class RadarSensor(Component):
 
     def add_tx(self, tx: TxElement) -> None:
         if tx.is_bound:
-            raise RuntimeError(
+            raise ComponentAlreadyAttachedError(
                 f"{tx!r} is already bound to a RadarSensor."
             )
 
@@ -180,8 +168,7 @@ class RfElement:
     """
     Base class for Tx/Rx elements.
 
-    This is intentionally not a Component because it is owned by a RadarSensor,
-    not directly by an Entity.
+    Owned by RadarSensor, not Entity.
     """
 
     __slots__ = (
@@ -308,15 +295,3 @@ class RxElement(RfElement):
         self.center_frequency_hz = center_frequency_hz
         self.bandwidth_hz = bandwidth_hz
         self.noise_figure_db = noise_figure_db
-        
-
-class ComponentError(RuntimeError):
-    pass
-
-
-class ComponentAlreadyAttachedError(ComponentError):
-    pass
-
-
-class ComponentNotFoundError(ComponentError):
-    pass        

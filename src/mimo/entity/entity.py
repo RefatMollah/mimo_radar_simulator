@@ -6,6 +6,7 @@ import uuid
 import numpy as np
 
 from ..geometry.motion_model import Motion, StaticMotion
+from .exceptions import ComponentAlreadyAttachedError, ComponentNotFoundError
 
 if TYPE_CHECKING:
     from .radar_component import Component
@@ -205,16 +206,3 @@ class Entity:
             for components in self._components.values()
             for component in components
         )
-    
-
-##################################################################################################################
-# Exceptions
-##################################################################################################################   
-    
-class ComponentAlreadyAttachedError(Exception):
-    def __init__(self, component_name: str):
-        super().__init__(f"Component {component_name} already attached to this entity")
-
-class ComponentNotFoundError(Exception):
-    def __init__(self, component_name):
-        super().__init__(f"Component {component_name} not attached.")

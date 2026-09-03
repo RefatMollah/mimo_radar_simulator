@@ -1,25 +1,25 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import Any, TypeAlias, Mapping
+from typing import Any, Mapping
 from numpy.typing import NDArray
 from dataclasses import dataclass
 from collections import defaultdict 
 
+from .._array import ArrayLike
 from .quat import identity_quats, quat_multiply, quat_normalise, quat_rotate
-from jax_backend import steering_batch_class_for
+from ._jax_backend import steering_batch_class_for
 from .sensor_steering import (
-    SteeringLaw, 
+    FixedBoresight,
+    ScanningPattern,
     SteeringActuator, 
     SteeringActuatorBatch, 
-    SteeringLawBatch,
+    ScanningPatternBatch,
     SteeringState,
 )
 from .spatial_engine import State
 from ..scene.scene import Scene, BackendContext
 
-
-ArrayLike: TypeAlias = Any
 
 @dataclass(frozen=True, slots=True)
 class ComponentMountOffsets:
@@ -33,7 +33,7 @@ class CompiledSensorRig:
     component_ids: tuple[str, ...]
     platform_slots: NDArray[np.intp]
     slots_by_steering: Mapping[str, NDArray[np.intp]]
-    steering_batches: Mapping[str, SteeringLawBatch]
+    steering_batches: Mapping[str, ScanningPatternBatch]
     actuator_batches: Mapping[str, SteeringActuatorBatch]
     mount_offsets: ComponentMountOffsets
     dtype: np.dtype[Any]
@@ -80,7 +80,7 @@ class SensorRig:
         self._next_slot = 0
         self._topology_version = 0
         
-        self._steering: dict[int, SteeringLaw | SteeringActuator] = {}
+        self._steering: dict[int, ScanningPattern | SteeringActuator] = {}
         self._platform_ids: dict[int, str] = {}
         self._mount_offsets: dict[int, tuple[ArrayLike, ArrayLike]] = {}
         
@@ -94,9 +94,9 @@ class SensorRig:
         self, 
         component_id: str, 
         platform_id: str, 
-        mount_pos: ArrayLike, 
-        mount_rot: ArrayLike, 
-        steering: SteeringLaw | SteeringActuator
+        mount_pos: ArrayLike | None = None,
+        mount_rot: ArrayLike | None = None,
+        steering: ScanningPattern | SteeringActuator | None = None,
     ) -> int:
         if component_id in self._slots_by_id:
             raise ValueError(f"Component {component_id!r} already registered.")
@@ -107,11 +107,36 @@ class SensorRig:
             
         self._slots_by_id[component_id] = slot
         self._components[slot] = component_id
-        self._steering[slot] = steering
+        self._steering[slot] = FixedBoresight() if steering is None else steering
         self._platform_ids[slot] = platform_id
-        self._mount_offsets[slot] = (mount_pos, mount_rot)
+        self._mount_offsets[slot] = (
+            np.zeros(3, dtype=np.float32) if mount_pos is None else mount_pos,
+            np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32) if mount_rot is None else mount_rot,
+        )
         self._topology_version += 1
         return slot
+
+    def add_sensor(
+        self,
+        component_id: str,
+        platform_id: str,
+        sensor: Any,
+        *,
+        mount_pos: ArrayLike | None = None,
+        mount_rot: ArrayLike | None = None,
+    ) -> int:
+        """Register a ``RadarSensor`` using its steering law.
+
+        Mount offsets describe the payload reference point; individual RF
+        element offsets remain on the elements themselves.
+        """
+        return self.add_component(
+            component_id,
+            platform_id,
+            mount_pos,
+            mount_rot,
+            sensor.steering,
+        )
 
     def compile(self, scene: Scene) -> CompiledSensorRig:
         if self._backend.name == "jax":
@@ -124,7 +149,7 @@ class SensorRig:
         component_ids = [""] * n
         platform_slots = np.zeros(n, dtype=np.intp)
         
-        buckets_law: dict[type[SteeringLaw], list[int]] = defaultdict(list)
+        buckets_law: dict[type[ScanningPattern], list[int]] = defaultdict(list)
         buckets_act: dict[type[SteeringActuator], list[int]] = defaultdict(list)
         
         pos_offsets = []
@@ -140,7 +165,7 @@ class SensorRig:
                 
             if slot in self._steering:
                 steer = self._steering[slot]
-                if isinstance(steer, SteeringLaw):
+                if isinstance(steer, ScanningPattern):
                     buckets_law[type(steer)].append(slot)
                 elif isinstance(steer, SteeringActuator):
                     buckets_act[type(steer)].append(slot)
@@ -168,9 +193,6 @@ class SensorRig:
 
         actuator_batches = {}
         for act_cls, slots in buckets_act.items():
-            # For actuators, we might just initialize the batch with default/max params
-            # depending on how you want to handle heterogeneous actuators.
-            # Here we assume homogeneous batches for simplicity.
             pass 
 
         return CompiledSensorRig(
@@ -208,16 +230,16 @@ def resolve_sensor_frames(
         # In reality, use a proper euler-to-quat function
         az = actuator_states.azimuth
         el = actuator_states.elevation
-        steer_ori = identity_quats(compiled_rig.n, xp, dtype) # Replace with actual az/el conversion
+        steer_ori = identity_quats(compiled_rig.n, like=plat_pos, dtype=dtype)
     else:
-        steer_ori = identity_quats(compiled_rig.n, xp, dtype)
+        steer_ori = identity_quats(compiled_rig.n, like=plat_pos, dtype=dtype)
         
     # Compose: World = Platform * Mount * Steering
-    rot_mount_pos = quat_rotate(plat_ori, mount_pos, xp=xp)
+    rot_mount_pos = quat_rotate(plat_ori, mount_pos, dtype=dtype)
     positions = plat_pos + rot_mount_pos
     
-    ori1 = quat_multiply(plat_ori, mount_rot, xp=xp, dtype=dtype)
-    orientations = quat_multiply(ori1, steer_ori, xp=xp, dtype=dtype)
-    orientations = quat_normalise(orientations, xp=xp)
+    ori1 = quat_multiply(plat_ori, mount_rot, dtype=dtype)
+    orientations = quat_multiply(ori1, steer_ori, dtype=dtype)
+    orientations = quat_normalise(orientations)
     
     return positions, orientations

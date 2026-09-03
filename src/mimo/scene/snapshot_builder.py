@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import NDArray, DTypeLike
+from numpy.typing import NDArray
 
 from dataclasses import dataclass
 import logging
 
+from .._array import ArrayLike, DTypeLike
 from ..geometry.spatial_engine import State, check_causality, state_at
 from .scene import Scene, CompiledScene
 
@@ -21,27 +22,27 @@ class SceneSnapshot:
     xp: str
     
     @property
-    def time(self) -> float | None:
+    def time(self) -> float | ArrayLike | None:
         return self.state.time
     
     @property
-    def positions(self) -> NDArray[np.float32]:
+    def positions(self) -> ArrayLike:
         return self.state.positions
     
     @property
-    def velocities(self) -> NDArray[np.float32]:
+    def velocities(self) -> ArrayLike:
         return self.state.velocities
     
     @property
-    def accelerations(self) -> NDArray[np.float32]:
+    def accelerations(self) -> ArrayLike:
         return self.state.accelerations
     
     @property
-    def orientations(self) -> NDArray[np.float32]:
+    def orientations(self) -> ArrayLike:
         return self.state.orientations
     
     @property
-    def angular_rates(self) -> NDArray[np.float32]:
+    def angular_rates(self) -> ArrayLike:
         return self.state.angular_rates
     
 

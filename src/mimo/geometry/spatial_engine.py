@@ -10,16 +10,18 @@ from numpy.typing import NDArray
 from dataclasses import dataclass, replace, fields
 
 from typing import TYPE_CHECKING, Mapping, Sequence, Any, cast, TypeAlias
-from numpy.typing import DTypeLike, NDArray
+from numpy.typing import NDArray
 
-from .jax_backend import _maybe_register_pytree
+from .._array import DTypeLike
+from ._jax_backend import _maybe_register_pytree
 from .motion_model import (
     MotionBatch,
     MotionBlock,
 )
 
 if TYPE_CHECKING:
-    from ..scene.scene import CompiledScene, RadarEngagements, CompiledChannels
+    from ..scene.radar_network import EngagementIndices
+    from ..scene.scene import CompiledScene
     from ..scene.snapshot_builder import SceneSnapshot
 
 
@@ -53,7 +55,7 @@ _maybe_register_pytree(State)
 @dataclass
 class DenseCompiledScene:
     n: int
-    dtype: np.dtype
+    dtype: DTypeLike
     dense_batches: Mapping[str, MotionBatch]
     masks: Mapping[str, NDArray[np.bool_]]
 
@@ -248,9 +250,9 @@ class SensorWorldPoses:
     orientations: ArrayLike
     
 
-def bistatic_geometry(sc: SceneSnapshot, engagements: RadarEngagements):
+def bistatic_geometry(sc: SceneSnapshot, engagements: EngagementIndices):
     """Calculates the bistatic geometry for a given set of engagements."""
-    tx_idx, tgt_idx, rx_idx = engagements.indices.tx_slots, engagements.indices.target_slots, engagements.indices.rx_slots        
+    tx_idx, tgt_idx, rx_idx = engagements.tx_slots, engagements.tgt_slots, engagements.rx_slots
     
     tx_pos, tgt_pos, rx_pos = sc.positions[tx_idx], sc.positions[tgt_idx], sc.positions[rx_idx]
     tx_vel, tgt_vel, rx_vel = sc.velocities[tx_idx], sc.velocities[tgt_idx], sc.velocities[rx_idx]
@@ -306,7 +308,7 @@ def bistatic_geometry(sc: SceneSnapshot, engagements: RadarEngagements):
     )
 
 #FIXME: fix backend inconsistencies
-def compile_sensor_world_poses(sc: SceneSnapshot, channel: CompiledChannels) -> SensorWorldPoses:
+def compile_sensor_world_poses(sc: SceneSnapshot, channel) -> SensorWorldPoses:
     """Apply each link's mounting offset to its parent entity's current pose."""    
     link_slots = channel.link_slots
     pos_offsets = channel.sensor_offsets.pos_offsets

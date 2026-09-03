@@ -56,6 +56,7 @@ def batch_class_for(motion_cls: type[Any]) -> type[Any]:
         return _MOTION_TO_BATCH[motion_cls]
     except KeyError:
         raise ValueError() from None
+
     
 # --- Registry for Steering Laws ---
 _STEERING_TO_BATCH: dict[type[Any], type[Any]] = {}

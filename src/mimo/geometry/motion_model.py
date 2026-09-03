@@ -4,21 +4,16 @@ import numpy as np
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 
-from typing import Sequence, cast, TypeAlias, Any, Union, TYPE_CHECKING, TypeVar, Callable
-from numpy.typing import NDArray, DTypeLike
+from types import ModuleType
+from typing import Sequence, cast, Any, TYPE_CHECKING
+from numpy.typing import NDArray
 
+from .._array import ArrayInput, ArrayLike, DTypeLike
 from .quat import quat_multiply, quat_normalise, axis_angle_delta_quat
-from .jax_backend import register_motion_batch, batch_class_for, _ensure_all_pytrees_registered
-
-Backend: TypeAlias = Any
+from ._jax_backend import register_motion_batch, batch_class_for, _ensure_all_pytrees_registered
 
 if TYPE_CHECKING:
-    from jax import Array as JaxArray
     from ..entity.entity import Entity
-else:
-    JaxArray = Any
-    
-ArrayLike: TypeAlias = Union[NDArray, JaxArray]
 
 
 #------------------------------------------------
@@ -34,10 +29,10 @@ class Motion(ABC):
 class StaticMotion(Motion):
     """A fixed, time-invariant state."""
 
-    position: ArrayLike
-    orientation: ArrayLike  # quaternion [w, x, y, z]
+    position: ArrayInput
+    orientation: ArrayInput  # quaternion [w, x, y, z]
     
-    xp: Backend = np
+    xp: ModuleType = np
     dtype: DTypeLike = np.float32
 
     def __post_init__(self) -> None:
@@ -47,13 +42,13 @@ class StaticMotion(Motion):
 
 @dataclass(frozen=True, slots=True)
 class ConstantVelocityMotion(Motion):
-    initial_position: ArrayLike
-    initial_velocity: ArrayLike
-    initial_orientation: ArrayLike
-    angular_velocity: ArrayLike
+    initial_position: ArrayInput
+    initial_velocity: ArrayInput
+    initial_orientation: ArrayInput
+    angular_velocity: ArrayInput
     initial_time: float = 0.0
     
-    xp: Backend = np
+    xp: ModuleType = np
     dtype: DTypeLike = np.float32
 
     def __post_init__(self) -> None:
@@ -65,14 +60,14 @@ class ConstantVelocityMotion(Motion):
 
 @dataclass(frozen=True, slots=True)
 class ConstantAccelerationMotion(Motion):
-    initial_position: ArrayLike
-    initial_velocity: ArrayLike
-    acceleration: ArrayLike
-    initial_orientation: ArrayLike
-    angular_velocity: ArrayLike
+    initial_position: ArrayInput
+    initial_velocity: ArrayInput
+    acceleration: ArrayInput
+    initial_orientation: ArrayInput
+    angular_velocity: ArrayInput
     initial_time: float = 0.0
     
-    xp: Backend = np
+    xp: ModuleType = np
     dtype: DTypeLike = np.float32
 
     def __post_init__(self) -> None:
@@ -83,7 +78,7 @@ class ConstantAccelerationMotion(Motion):
         _coerce_vec3(self, "angular_velocity", self.xp, self.dtype)
 
     
-def _coerce_array(obj: object, name: str, expected_shape: tuple[int, ...], xp: Backend = np, dtype: DTypeLike = np.float32) -> None:
+def _coerce_array(obj: object, name: str, expected_shape: tuple[int, ...], xp: ModuleType = np, dtype: DTypeLike = np.float32) -> None:
     value = xp.asarray(getattr(obj, name), dtype=dtype)
     if value.shape != expected_shape:
         raise ValueError(
@@ -92,10 +87,10 @@ def _coerce_array(obj: object, name: str, expected_shape: tuple[int, ...], xp: B
         )
     object.__setattr__(obj, name, value)
 
-def _coerce_vec3(obj: object, name: str, xp: Backend = np, dtype: DTypeLike = np.float32) -> None:
+def _coerce_vec3(obj: object, name: str, xp: ModuleType = np, dtype: DTypeLike = np.float32) -> None:
     _coerce_array(obj, name, (3,), xp, dtype)
 
-def _coerce_quat(obj: object, name: str, xp: Backend = np, dtype: DTypeLike = np.float32) -> None:
+def _coerce_quat(obj: object, name: str, xp: ModuleType = np, dtype: DTypeLike = np.float32) -> None:
     _coerce_array(obj, name, (4,), xp, dtype)
     norm = xp.linalg.norm(getattr(obj, name))
     if not xp.isclose(norm, 1.0, atol=1e-6):
@@ -121,7 +116,7 @@ class MotionBlock:
     angular_rates: ArrayLike
 
 
-def build_batch(motion_cls: type[Motion], entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> MotionBatch:
+def build_batch(motion_cls: type[Motion], entities: Sequence[Entity], dtype: DTypeLike, xp: ModuleType = np) -> MotionBatch:
     # Ensure the batch is created using the provided backend `xp` so that
     # JAX dispatch uses `jax.numpy` (jnp) and NumPy dispatch uses `numpy`.
     return batch_class_for(motion_cls).from_entities(entities, dtype, xp)
@@ -129,12 +124,12 @@ def build_batch(motion_cls: type[Motion], entities: Sequence[Entity], dtype: DTy
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MotionBatch(ABC):
-    xp: Backend = np
+    xp: ModuleType = np
     dtype: DTypeLike = np.float32
     
     @classmethod
     @abstractmethod
-    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> MotionBatch:
+    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: ModuleType = np) -> MotionBatch:
         ...
     
     @abstractmethod
@@ -149,7 +144,7 @@ class StaticBatch(MotionBatch):
     orientations: ArrayLike
     
     @classmethod
-    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> StaticBatch:
+    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: ModuleType = np) -> StaticBatch:
         motions = [cast(StaticMotion, e.motion) for e in entities]
         return cls(
             positions=xp.stack([m.position for m in motions]).astype(dtype),
@@ -182,7 +177,7 @@ class ConstantVelocityBatch(MotionBatch):
     initial_times: ArrayLike
     
     @classmethod
-    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> ConstantVelocityBatch:
+    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: ModuleType = np) -> ConstantVelocityBatch:
         motions = [cast(ConstantVelocityMotion, e.motion) for e in entities]
         return cls(
             initial_positions=xp.stack([m.initial_position for m in motions]).astype(dtype),
@@ -202,8 +197,8 @@ class ConstantVelocityBatch(MotionBatch):
         dt = time - self.initial_times
         dt_col = dt[:, None]
         positions = self.initial_positions + self.initial_velocities * dt_col
-        dq = axis_angle_delta_quat(self.angular_rates, dt, xp=xp)
-        orientations = quat_normalise(quat_multiply(self.initial_orientations, dq, xp=xp, dtype=dtype), xp=xp)
+        dq = axis_angle_delta_quat(self.angular_rates, dt, dtype=dtype)
+        orientations = quat_normalise(quat_multiply(self.initial_orientations, dq, dtype=dtype))
         
         return MotionBlock(
             positions=positions,
@@ -225,7 +220,7 @@ class ConstantAccelerationBatch(MotionBatch):
     initial_times: ArrayLike
         
     @classmethod
-    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: Backend = np) -> MotionBatch:
+    def from_entities(cls, entities: Sequence[Entity], dtype: DTypeLike, xp: ModuleType = np) -> MotionBatch:
         motions = [cast(ConstantAccelerationMotion, e.motion) for e in entities]
         return cls(
             initial_positions=xp.stack([m.initial_position for m in motions]).astype(dtype),
@@ -247,8 +242,8 @@ class ConstantAccelerationBatch(MotionBatch):
         dt_col = dt[:, None]
         positions = self.initial_positions + self.initial_velocities * dt_col + 0.5 * self.accelerations * dt_col ** 2
         velocities = self.initial_velocities + self.accelerations * dt_col
-        dq = axis_angle_delta_quat(self.angular_rates, dt, xp=xp)
-        orientations = quat_normalise(quat_multiply(self.initial_orientations, dq, xp=xp, dtype=dtype), xp=xp)
+        dq = axis_angle_delta_quat(self.angular_rates, dt, dtype=dtype)
+        orientations = quat_normalise(quat_multiply(self.initial_orientations, dq, dtype=dtype))
         
         return MotionBlock(
             positions=positions,
